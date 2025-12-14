@@ -42,6 +42,13 @@ export interface Project {
     description?: string;
     startDate: Date;
     createdAt: Date;
+    clientId?: string; // Link to Client
+    // Financial Fields
+    grossValue?: number; // Valor Bruto de Venda
+    taxRate?: number; // Imposto aplicado (%)
+    margin?: number; // Contract Margem (%)
+    deliveryDeviation?: number; // Desvio de Deleivery (%)
+    netValue?: number; // Valor Líquido
 }
 
 // Helper for UI view

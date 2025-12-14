@@ -1,55 +1,47 @@
-import { useState } from 'react';
-import { LayoutDashboard, Calendar, Users, Settings, PieChart, X, ChevronDown, ChevronRight, Folder, Briefcase } from 'lucide-react';
+import { useState, useMemo, useEffect } from 'react';
+import { LayoutDashboard, Calendar, Users, Settings, PieChart, ChevronDown, ChevronRight, Folder, Building2, UserCircle } from 'lucide-react';
 import { appVersion } from '../version';
+import { Client } from '../types/client';
 
 interface MenuItem {
     id?: string;
     label: string;
     icon: any;
     children?: MenuItem[];
-    isOpen?: boolean; // Initial state for groups
+    isOpen?: boolean;
+    isDynamic?: boolean;
 }
 
-const MENU_STRUCTURE: MenuItem[] = [
-    {
-        label: 'Projects',
-        icon: Briefcase,
-        isOpen: true,
-        children: [
-            {
-                label: 'Project',
-                icon: Folder,
-                isOpen: true,
-                children: [
-                    { id: 'my_projects', icon: Folder, label: 'Meus Projetos' },
-                    { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-                    { id: 'gantt', icon: Calendar, label: 'Visão Gantt' },
-                    { id: 'reports', icon: PieChart, label: 'Relatórios' },
-                ]
-            }
-        ]
-    },
-    { id: 'team', icon: Users, label: 'Equipe' },
-];
+import { Project } from '../types';
+
+interface MenuItem {
+    id?: string;
+    label: string;
+    icon: any;
+    children?: MenuItem[];
+    isOpen?: boolean;
+    isDynamic?: boolean;
+}
 
 interface SidebarProps {
     activeView: string;
     onNavigate: (view: string) => void;
     className?: string;
+    clients?: Client[];
+    projects?: Project[];
 }
 
 const MenuItemComponent = ({ item, depth = 0, activeView, onNavigate }: { item: MenuItem, depth?: number, activeView: string, onNavigate: (view: string) => void }) => {
-    const [isOpen, setIsOpen] = useState(item.isOpen || false);
+    // Open if active or if child is active
+    const isChildActive = item.children?.some(child => child.id === activeView || child.children?.some(c => c.id === activeView));
+    const [isOpen, setIsOpen] = useState(item.isOpen || isChildActive || false);
+
+    useEffect(() => {
+        if (isChildActive) setIsOpen(true);
+    }, [isChildActive]);
+
     const hasChildren = item.children && item.children.length > 0;
     const isActive = item.id === activeView;
-    const isChildActive = item.children?.some(child => child.id === activeView || child.children?.some(c => c.id === activeView));
-
-    // Auto-expand if child is active - ensuring it opens on load/navigation
-    // Note: This side-effect inside render is generally okay for simple toggle states derived from props in this context, 
-    // but better to use useEffect in a real app. For this snippet, it's fine or we can rely on initial state.
-    // If we want it strictly reactive:
-    // useEffect(() => { if (isChildActive) setIsOpen(true); }, [activeView]); 
-    // Stick to simple logic for now.
 
     const handleClick = () => {
         if (hasChildren) {
@@ -59,7 +51,7 @@ const MenuItemComponent = ({ item, depth = 0, activeView, onNavigate }: { item: 
         }
     };
 
-    const paddingLeft = depth * 12 + 16; // Dynamic padding for nesting
+    const paddingLeft = depth * 12 + 16;
 
     return (
         <div className="w-full">
@@ -103,7 +95,50 @@ const MenuItemComponent = ({ item, depth = 0, activeView, onNavigate }: { item: 
     );
 };
 
-export const Sidebar = ({ activeView, onNavigate, className = '' }: SidebarProps) => {
+export const Sidebar = ({ activeView, onNavigate, className = '', clients = [], projects = [] }: SidebarProps) => {
+
+    const menuStructure = useMemo<MenuItem[]>(() => {
+        // 1. Dynamic Client Trees
+        const clientTrees: MenuItem[] = clients.map(client => {
+            // Find projects for this client
+            const clientProjects = projects.filter(p => p.clientId === client.id);
+
+            // Create menu items for each project
+            const projectItems: MenuItem[] = clientProjects.map(project => ({
+                label: project.name,
+                icon: Folder,
+                isOpen: false,
+                children: [
+                    { id: `project_${project.id}_dashboard`, icon: LayoutDashboard, label: 'Relatório Operacional' },
+                    { id: `project_${project.id}_gantt`, icon: Calendar, label: 'Relatório Tático-Gerencial' }
+                ]
+            }));
+
+            return {
+                label: client.name,
+                icon: Building2,
+                isOpen: false,
+                children: [
+                    { id: `client_${client.id}_reports`, icon: PieChart, label: 'Relatório Estratégico (Portfólio)' },
+                    { id: `client_${client.id}_my_projects`, icon: Settings, label: 'Gerenciar Projetos' },
+                    ...projectItems
+                ]
+            };
+        });
+
+        // 2. Main Menu Structure
+        return [
+            {
+                label: 'Clientes',
+                id: 'clients_manage',
+                icon: UserCircle,
+                isOpen: false
+            },
+            ...clientTrees,
+            { id: 'team', icon: Users, label: 'Equipe' },
+        ];
+    }, [clients, projects]);
+
     return (
         <aside className={`h-screen w-20 lg:w-64 bg-slate-900 text-white flex flex-col transition-all duration-300 flex-shrink-0 border-r border-slate-800 ${className}`}>
             <div className="h-16 flex items-center justify-center lg:justify-start lg:px-6 border-b border-slate-800 bg-slate-950/50">
@@ -113,7 +148,7 @@ export const Sidebar = ({ activeView, onNavigate, className = '' }: SidebarProps
 
             <nav className="flex-1 py-6 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-transparent">
                 <div className="space-y-1">
-                    {MENU_STRUCTURE.map((item, index) => (
+                    {menuStructure.map((item, index) => (
                         <MenuItemComponent
                             key={index}
                             item={item}
@@ -133,74 +168,20 @@ export const Sidebar = ({ activeView, onNavigate, className = '' }: SidebarProps
                     v{appVersion}
                 </div>
             </div>
-        </aside >
+        </aside>
     );
 };
 
-interface MobileMenuProps extends SidebarProps {
-    isOpen: boolean;
-    onClose: () => void;
-}
-
-export const MobileMenu = ({ activeView, onNavigate, isOpen, onClose }: MobileMenuProps) => {
-    if (!isOpen) return null;
-
-    // Simplified recursive renderer for mobile
-    const renderMobileItems = (items: MenuItem[], depth = 0) => {
-        return items.map((item, index) => (
-            <div key={index}>
-                <button
-                    onClick={() => {
-                        if (item.children) {
-                            // Being simple for mobile logic (auto expanded in loop for now)
-                        } else if (item.id) {
-                            onNavigate(item.id);
-                            onClose();
-                        }
-                    }}
-                    className={`w-full flex items-center py-3 px-4 rounded-lg transition-colors 
-                        ${item.children ? 'text-slate-400 uppercase text-xs font-bold tracking-wider mt-2' : ''}
-                        ${item.id === activeView ? 'bg-indigo-600 text-white shadow-md shadow-indigo-900/20' : (!item.children && 'text-slate-300 hover:bg-slate-800')}
-                    `}
-                    style={{ paddingLeft: `${depth * 16 + 16}px` }}
-                >
-                    <item.icon size={item.children ? 16 : 22} className={item.children ? 'mr-2' : 'mr-3'} />
-                    <span>{item.label}</span>
-                </button>
-                {item.children && (
-                    <div className="flex flex-col gap-1 mt-1">
-                        {renderMobileItems(item.children, depth + 1)}
-                    </div>
-                )}
-            </div>
-        ));
-    };
-
+export const MobileMenu = ({ isOpen, onClose, activeView, onNavigate, clients }: SidebarProps & { isOpen: boolean; onClose: () => void }) => {
     return (
-        <div className="fixed inset-0 z-50 bg-slate-900/95 backdrop-blur-sm lg:hidden flex flex-col animate-in slide-in-from-top-4 fade-in duration-200">
-            <div className="h-16 flex items-center justify-between px-6 border-b border-slate-800 bg-slate-900">
-                <div className="flex items-center">
-                    <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center font-bold text-xl text-white">P</div>
-                    <span className="ml-3 font-bold text-lg text-white">Projetos</span>
-                </div>
-                <button onClick={onClose} className="text-slate-400 hover:text-white p-2 rounded-lg hover:bg-slate-800 transition-colors">
-                    <X size={24} />
-                </button>
+        <>
+            <div
+                className={`fixed inset-0 bg-black/50 backdrop-blur-sm z-40 transition-opacity duration-300 lg:hidden ${isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+                onClick={onClose}
+            />
+            <div className={`fixed inset-y-0 left-0 z-50 w-64 transform transition-transform duration-300 lg:hidden ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+                <Sidebar activeView={activeView} onNavigate={(view) => { onNavigate(view); onClose(); }} className="w-full h-full" clients={clients} />
             </div>
-
-            <nav className="flex-1 py-6 px-4 overflow-y-auto">
-                {renderMobileItems(MENU_STRUCTURE)}
-            </nav>
-
-            <div className="p-6 border-t border-slate-800 bg-slate-900">
-                <button className="flex items-center text-slate-400 hover:text-white transition-colors w-full px-4 py-3 rounded-lg hover:bg-slate-800">
-                    <Settings size={24} />
-                    <span className="ml-4 text-base font-medium">Configurações</span>
-                </button>
-                <div className="text-xs text-slate-600 text-center mt-2">
-                    v{appVersion}
-                </div>
-            </div>
-        </div>
+        </>
     );
 };

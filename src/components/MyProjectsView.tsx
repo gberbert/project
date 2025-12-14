@@ -1,29 +1,86 @@
-import React, { useState } from 'react';
-import { Plus, Search, Calendar, MoreVertical, Folder, ArrowRight, Clock, Trash2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Plus, Search, Calendar, Folder, ArrowRight, Clock, Trash2, Pencil } from 'lucide-react';
 import { Project } from '../types';
 
 interface MyProjectsViewProps {
     projects: Project[];
     onCreateProject: (project: Omit<Project, 'id' | 'createdAt'>) => void;
+    onUpdateProject: (project: Project) => void;
     onSelectProject: (projectId: string) => void;
     onDeleteProject: (projectId: string) => void;
 }
 
-export const MyProjectsView = ({ projects = [], onCreateProject, onSelectProject, onDeleteProject }: MyProjectsViewProps) => {
+export const MyProjectsView = ({ projects = [], onCreateProject, onUpdateProject, onSelectProject, onDeleteProject }: MyProjectsViewProps) => {
     const [isModalOpen, setIsModalOpen] = useState(false);
-    const [newProjectName, setNewProjectName] = useState('');
-    const [newProjectDesc, setNewProjectDesc] = useState('');
+    const [editingProject, setEditingProject] = useState<Project | null>(null);
+
+    // Form State
+    const [name, setName] = useState('');
+    const [description, setDescription] = useState('');
+    const [grossValue, setGrossValue] = useState<string>('');
+    const [taxRate, setTaxRate] = useState<string>('');
+    const [margin, setMargin] = useState<string>('');
+    const [deliveryDeviation, setDeliveryDeviation] = useState<string>('');
+    const [netValue, setNetValue] = useState<string>('');
+
+    // Update form when opening modal
+    useEffect(() => {
+        if (isModalOpen) {
+            if (editingProject) {
+                setName(editingProject.name);
+                setDescription(editingProject.description || '');
+                setGrossValue(editingProject.grossValue?.toString() || '');
+                setTaxRate(editingProject.taxRate?.toString() || '');
+                setMargin(editingProject.margin?.toString() || '');
+                setDeliveryDeviation(editingProject.deliveryDeviation?.toString() || '');
+                setNetValue(editingProject.netValue?.toString() || '');
+            } else {
+                setName('');
+                setDescription('');
+                setGrossValue('');
+                setTaxRate('');
+                setMargin('');
+                setDeliveryDeviation('');
+                setNetValue('');
+            }
+        }
+    }, [isModalOpen, editingProject]);
+
+    // Optional: Auto-calculate Net Value if users want it? 
+    // For now, I'll stick to manual entry as requested, but I could add a "Calculate" button or effect later.
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        onCreateProject({
-            name: newProjectName,
-            description: newProjectDesc,
-            startDate: new Date(),
-        });
+
+        const projectData = {
+            name,
+            description,
+            grossValue: parseFloat(grossValue) || 0,
+            taxRate: parseFloat(taxRate) || 0,
+            margin: parseFloat(margin) || 0,
+            deliveryDeviation: parseFloat(deliveryDeviation) || 0,
+            netValue: parseFloat(netValue) || 0,
+        };
+
+        if (editingProject) {
+            onUpdateProject({
+                ...editingProject,
+                ...projectData
+            });
+        } else {
+            onCreateProject({
+                ...projectData,
+                startDate: new Date(),
+            });
+        }
         setIsModalOpen(false);
-        setNewProjectName('');
-        setNewProjectDesc('');
+        setEditingProject(null);
+    };
+
+    const openEditModal = (project: Project, e: React.MouseEvent) => {
+        e.stopPropagation();
+        setEditingProject(project);
+        setIsModalOpen(true);
     };
 
     return (
@@ -34,7 +91,7 @@ export const MyProjectsView = ({ projects = [], onCreateProject, onSelectProject
                     <p className="text-gray-500 mt-2">Gerencie seu portfólio e crie novos empreendimentos.</p>
                 </div>
                 <button
-                    onClick={() => setIsModalOpen(true)}
+                    onClick={() => { setEditingProject(null); setIsModalOpen(true); }}
                     className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl shadow-lg shadow-indigo-200 transition-all hover:scale-105 active:scale-95 font-medium"
                 >
                     <Plus size={20} />
@@ -60,7 +117,14 @@ export const MyProjectsView = ({ projects = [], onCreateProject, onSelectProject
                         onClick={() => onSelectProject(project.id)}
                         className="group bg-white rounded-2xl p-6 border border-gray-100 shadow-sm hover:shadow-xl hover:border-indigo-100 transition-all duration-300 cursor-pointer relative overflow-hidden"
                     >
-                        <div className="absolute top-0 right-0 p-4 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="absolute top-0 right-0 p-4 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
+                            <button
+                                onClick={(e) => openEditModal(project, e)}
+                                className="text-gray-400 hover:text-indigo-600 p-2 rounded-full hover:bg-indigo-50 transition-colors"
+                                title="Editar Projeto"
+                            >
+                                <Pencil size={18} />
+                            </button>
                             <button
                                 onClick={(e) => {
                                     e.stopPropagation();
@@ -106,11 +170,13 @@ export const MyProjectsView = ({ projects = [], onCreateProject, onSelectProject
                 )}
             </div>
 
-            {/* Create Modal */}
+            {/* Create/Edit Modal */}
             {isModalOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
-                    <div className="bg-white rounded-2xl w-full max-w-md p-8 shadow-2xl scale-100 animate-in zoom-in-95 duration-200">
-                        <h2 className="text-2xl font-bold text-gray-900 mb-6">Novo Projeto</h2>
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-200 overflow-y-auto">
+                    <div className="bg-white rounded-2xl w-full max-w-md p-8 shadow-2xl scale-100 animate-in zoom-in-95 duration-200 my-8">
+                        <h2 className="text-2xl font-bold text-gray-900 mb-6">
+                            {editingProject ? 'Editar Projeto' : 'Novo Projeto'}
+                        </h2>
                         <form onSubmit={handleSubmit}>
                             <div className="space-y-4">
                                 <div>
@@ -118,8 +184,8 @@ export const MyProjectsView = ({ projects = [], onCreateProject, onSelectProject
                                     <input
                                         type="text"
                                         required
-                                        value={newProjectName}
-                                        onChange={e => setNewProjectName(e.target.value)}
+                                        value={name}
+                                        onChange={e => setName(e.target.value)}
                                         className="w-full px-4 py-3 rounded-lg bg-gray-50 border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all"
                                         placeholder="Ex: Redesign Website"
                                     />
@@ -127,12 +193,88 @@ export const MyProjectsView = ({ projects = [], onCreateProject, onSelectProject
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-1">Descrição</label>
                                     <textarea
-                                        value={newProjectDesc}
-                                        onChange={e => setNewProjectDesc(e.target.value)}
-                                        className="w-full px-4 py-3 rounded-lg bg-gray-50 border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all h-32 resize-none"
+                                        value={description}
+                                        onChange={e => setDescription(e.target.value)}
+                                        className="w-full px-4 py-3 rounded-lg bg-gray-50 border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all h-24 resize-none"
                                         placeholder="Breve descrição dos objetivos..."
                                     />
                                 </div>
+
+                                {/* Financial Fields */}
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Valor Bruto (Venda)</label>
+                                        <div className="relative">
+                                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">R$</span>
+                                            <input
+                                                type="number"
+                                                step="0.01"
+                                                value={grossValue}
+                                                onChange={e => setGrossValue(e.target.value)}
+                                                className="w-full pl-10 pr-4 py-2.5 rounded-lg bg-gray-50 border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                            />
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Imposto (%)</label>
+                                        <div className="relative">
+                                            <input
+                                                type="number"
+                                                step="0.1"
+                                                value={taxRate}
+                                                onChange={e => setTaxRate(e.target.value)}
+                                                className="w-full px-4 py-2.5 rounded-lg bg-gray-50 border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                            />
+                                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">%</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Contract Margem</label>
+                                        <div className="relative">
+                                            <input
+                                                type="number"
+                                                step="0.1"
+                                                value={margin}
+                                                onChange={e => setMargin(e.target.value)}
+                                                className="w-full px-4 py-2.5 rounded-lg bg-gray-50 border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                            />
+                                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">%</span>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Desvio Delivery</label>
+                                        <div className="relative">
+                                            <input
+                                                type="number"
+                                                step="0.1"
+                                                value={deliveryDeviation}
+                                                onChange={e => setDeliveryDeviation(e.target.value)}
+                                                className="w-full px-4 py-2.5 rounded-lg bg-gray-50 border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                            />
+                                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">%</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Valor Líquido (Calc. c/ Desvio)</label>
+                                    <div className="relative">
+                                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">R$</span>
+                                        <input
+                                            type="number"
+                                            step="0.01"
+                                            value={netValue}
+                                            onChange={e => setNetValue(e.target.value)}
+                                            className="w-full pl-10 pr-4 py-2.5 rounded-lg bg-gray-50 border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-indigo-50/50"
+                                            placeholder="Calculado ou Manual..."
+                                        />
+                                    </div>
+                                    <p className="text-xs text-gray-400 mt-1">Preencha o valor líquido final considerando os desvios.</p>
+                                </div>
+
                             </div>
                             <div className="flex gap-3 mt-8">
                                 <button
@@ -146,7 +288,7 @@ export const MyProjectsView = ({ projects = [], onCreateProject, onSelectProject
                                     type="submit"
                                     className="flex-1 px-4 py-3 bg-indigo-600 text-white font-medium rounded-xl hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200"
                                 >
-                                    Criar Projeto
+                                    {editingProject ? 'Salvar Alterações' : 'Criar Projeto'}
                                 </button>
                             </div>
                         </form>

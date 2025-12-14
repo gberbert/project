@@ -8,11 +8,125 @@ import { DashboardView } from './components/DashboardView';
 import { TaskListView } from './components/TaskListView';
 import { ReportsView } from './components/ReportsView';
 import { MyProjectsView } from './components/MyProjectsView';
+import { ClientsView } from './components/ClientsView';
 import { useProjectLogic } from './hooks/useProjectLogic';
+import { isAfter, isWeekend, addDays, differenceInDays } from 'date-fns';
 
 import { Task, Resource, Project } from './types';
-import { Plus, Search, Bell, Database, CloudOff, Menu } from 'lucide-react';
+import { Database, CloudOff, Menu } from 'lucide-react';
 import { ProjectService } from './services/projectService';
+
+// --- Stats Helper ---
+const countBusinessDays = (startDate: Date | undefined, endDate: Date | undefined) => {
+    if (!startDate || !endDate) return 0;
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    start.setHours(12, 0, 0, 0);
+    end.setHours(12, 0, 0, 0);
+    if (isAfter(start, end)) return 0;
+    let count = 0;
+    let current = start;
+    while (current <= end) {
+        if (!isWeekend(current)) count++;
+        current = addDays(current, 1);
+    }
+    return count;
+};
+
+const calculateProjectStats = (tasks: Task[], resources: Resource[]) => {
+    if (tasks.length === 0) return { totalCost: 0, totalRealCost: 0, progress: 0, plannedProgress: 0, totalDuration: 0, totalRealDuration: 0, spi: 0, cpi: 0 };
+
+    let minStart = new Date(8640000000000000);
+    let maxEnd = new Date(-8640000000000000);
+    let minRealStart = new Date(8640000000000000);
+    let maxRealEnd = new Date(-8640000000000000);
+
+    let totalWeightedProgress = 0;
+    let totalDurationMs = 0;
+    let totalCost = 0;
+    let totalRealCost = 0;
+
+    // Filter to LEAF tasks
+    const leafTasks = tasks.filter(t => t.type !== 'project');
+
+    if (leafTasks.length === 0) return { totalCost: 0, totalRealCost: 0, progress: 0, plannedProgress: 0, totalDuration: 0, totalRealDuration: 0, spi: 0, cpi: 0 };
+
+    leafTasks.forEach(task => {
+        const startMs = task.start.getTime();
+        const endMs = task.end.getTime();
+
+        if (startMs < minStart.getTime()) minStart = task.start;
+        if (endMs > maxEnd.getTime()) maxEnd = task.end;
+
+        if (task.realStart) {
+            if (task.realStart.getTime() < minRealStart.getTime()) minRealStart = task.realStart;
+        }
+        if (task.realEnd) {
+            if (task.realEnd.getTime() > maxRealEnd.getTime()) maxRealEnd = task.realEnd;
+        }
+
+        const durationMs = endMs - startMs;
+        totalWeightedProgress += (task.progress || 0) * durationMs;
+        totalDurationMs += durationMs;
+
+        if (task.resourceId && resources.length > 0) {
+            const res = resources.find(r => r.id === task.resourceId);
+            if (res) {
+                const days = Math.max(1, countBusinessDays(task.start, task.end));
+                totalCost += days * 8 * res.hourlyRate;
+                if (task.realStart && task.realEnd) {
+                    const rDays = Math.max(1, countBusinessDays(task.realStart, task.realEnd));
+                    totalRealCost += rDays * 8 * res.hourlyRate;
+                }
+            }
+        }
+    });
+
+    const roots = tasks.filter(t => !t.parent || !tasks.find(p => p.id === t.parent));
+    let rootWeightedProgress = 0;
+    let rootTotalDuration = 0;
+    roots.forEach(r => {
+        let duration = Math.max(1, differenceInDays(r.end, r.start));
+        rootWeightedProgress += (r.progress || 0) * duration;
+        rootTotalDuration += duration;
+    });
+    const overallProgress = rootTotalDuration > 0 ? Math.round(rootWeightedProgress / rootTotalDuration) : 0;
+
+    const totalDurationBusinessDays = countBusinessDays(minStart, maxEnd);
+    let totalRealDurationBusinessDays = 0;
+    if (maxRealEnd.getTime() > -8640000000000000 && minRealStart.getTime() < 8640000000000000) {
+        totalRealDurationBusinessDays = countBusinessDays(minRealStart, maxRealEnd);
+    }
+
+    const today = new Date();
+    today.setHours(12, 0, 0, 0);
+    let plannedProgress = 0;
+    if (minStart.getTime() < 8640000000000000 && totalDurationBusinessDays > 0) {
+        if (isAfter(minStart, today)) plannedProgress = 0;
+        else if (isAfter(today, maxEnd)) plannedProgress = 100;
+        else {
+            const elapsedDays = countBusinessDays(minStart, today);
+            plannedProgress = Math.round((elapsedDays / totalDurationBusinessDays) * 100);
+        }
+    }
+    plannedProgress = Math.min(100, Math.max(0, plannedProgress));
+
+    let spi = plannedProgress > 0 ? overallProgress / plannedProgress : 1;
+    let cpi = totalRealCost > 0 ? totalCost / totalRealCost : 1;
+
+    // Format for display scaling/rounding if needed
+    return {
+        totalCost,
+        totalRealCost,
+        progress: overallProgress,
+        plannedProgress,
+        totalDuration: Math.max(0, totalDurationBusinessDays),
+        totalRealDuration: Math.max(0, totalRealDurationBusinessDays),
+        spi,
+        cpi
+    };
+};
+// --------------------
 
 // Mock Resources for Demo/Calculation in case DB is empty or error
 const MOCK_RESOURCES: Resource[] = [
@@ -90,23 +204,57 @@ function App() {
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
     const [selectedProjectId, setSelectedProjectId] = useState<string>('1');
+    const [clientTasks, setClientTasks] = useState<Task[]>([]);
 
     // Projects State
-    const [projects, setProjects] = useState<Project[]>([
-        { id: '1', name: 'Plataforma SaaS MVP', description: 'Desenvolvimento do MVP da plataforma principal.', startDate: new Date('2024-01-01'), createdAt: new Date() },
-        { id: '2', name: 'Refatoração Backend', description: 'Atualização da arquitetura de microsserviços.', startDate: new Date('2024-03-15'), createdAt: new Date() }
-    ]);
+    const [projects, setProjects] = useState<Project[]>([]);
 
-    const handleCreateProject = (projectData: Omit<Project, 'id' | 'createdAt'>) => {
-        const newProject: Project = {
-            ...projectData,
-            id: `proj-${Date.now()}`,
-            createdAt: new Date()
+    // Persistence Subscriptions (Projects & Clients)
+    useEffect(() => {
+        const unsubProjects = ProjectService.subscribeProjects((projs) => {
+            setProjects(projs);
+        });
+
+        const unsubClients = ProjectService.subscribeClients((cls) => {
+            setClients(cls);
+        });
+
+        return () => {
+            unsubProjects();
+            unsubClients();
         };
-        setProjects([...projects, newProject]);
+    }, []);
+
+    // Project Logic & State
+    const handleCreateProject = async (projectData: Omit<Project, 'id' | 'createdAt'>) => {
+        try {
+            await ProjectService.createProject({
+                ...projectData,
+                createdAt: new Date()
+            });
+        } catch (error) {
+            console.error("Error creating project:", error);
+        }
     };
 
-    // We start with empty, relying on subscription or fallback to mock if needed
+    const handleProjectDelete = async (projectId: string) => {
+        try {
+            await ProjectService.deleteProject(projectId);
+        } catch (error) {
+            console.error("Error deleting project:", error);
+        }
+    };
+
+    const handleUpdateProject = async (updatedProject: Project) => {
+        try {
+            const { id, ...data } = updatedProject;
+            await ProjectService.updateProject(id, data);
+        } catch (error) {
+            console.error("Error updating project:", error);
+        }
+    };
+
+    // Task Logic
     const {
         tasks,
         addTask,
@@ -123,7 +271,7 @@ function App() {
     const [editingTask, setEditingTask] = useState<Task | undefined>(undefined);
     const [insertAfterTaskId, setInsertAfterTaskId] = useState<string | undefined>(undefined);
 
-    // Subscribe to Firestore (Logic remains same)
+    // Subscribe to Firestore 
     useEffect(() => {
         const projectId = selectedProjectId || '1';
         let unsubscribeTasks: (() => void) | undefined;
@@ -150,11 +298,10 @@ function App() {
         };
     }, [selectedProjectId]);
 
-    const stats = useMemo(() => getProjectStats(resources), [tasks, getProjectStats, resources]);
 
-    // Override local logic handlers to also save to DB
+
+    // Handlers
     const onTaskChangeWrapper = (updatedTask: Task) => {
-        // Detect if it is a Move operation (Dates changed) vs Progress/Name update
         const oldTask = tasks.find(t => t.id === updatedTask.id);
         if (oldTask && (oldTask.start.getTime() !== updatedTask.start.getTime() || oldTask.end.getTime() !== updatedTask.end.getTime())) {
             handleMoveTask(updatedTask.id, updatedTask.start, updatedTask.end);
@@ -162,7 +309,6 @@ function App() {
             updateTask(updatedTask);
         }
 
-        // Push to DB
         ProjectService.updateTask(updatedTask.id, {
             start: updatedTask.start,
             end: updatedTask.end,
@@ -173,7 +319,7 @@ function App() {
             dependencies: updatedTask.dependencies || [],
             resourceId: updatedTask.resourceId || '',
             type: updatedTask.type || 'task',
-            parent: updatedTask.parent // ensure parent is saved
+            parent: updatedTask.parent
         }).catch(e => console.error("Failed to update task in DB:", e));
     }
 
@@ -183,7 +329,6 @@ function App() {
             addTask(newTask, insertAfterTaskId);
             return;
         }
-
         try {
             const { id, ...taskData } = newTask;
             await ProjectService.addTask(taskData);
@@ -195,32 +340,23 @@ function App() {
 
     const handleDeleteTask = async (taskId: string) => {
         deleteTask(taskId);
-
-        if (!isConnected) return;
-
-        try {
-            await ProjectService.deleteTask(taskId);
-        } catch (e) {
-            console.error("Failed to delete task in DB", e);
+        if (isConnected) {
+            try {
+                await ProjectService.deleteTask(taskId);
+            } catch (e) { console.error("Failed to delete task in DB", e); }
         }
     }
 
     const handleCreateClick = (afterTaskId?: string) => {
         if (typeof afterTaskId === 'object') afterTaskId = undefined;
         setInsertAfterTaskId(afterTaskId);
-
-        // Inherit parent from sibling for form default
         let defaultParent = undefined;
         if (afterTaskId) {
             const siblingTask = tasks.find(t => t.id === afterTaskId);
             if (siblingTask) {
-                // If the sibling is a group (project)?
-                // UX: If I click add on a group, do I assume inside or after?
-                // Use strict sibling logic: same parent.
                 defaultParent = siblingTask.parent;
             }
         }
-
         setEditingTask({ parent: defaultParent } as unknown as Task);
         setIsTaskModalOpen(true);
     };
@@ -240,10 +376,6 @@ function App() {
         setIsTaskModalOpen(false);
     };
 
-    const handleSeed = () => {
-        ProjectService.seedInitialData();
-    };
-
     const handleReorderTasks = (newTasks: Task[], movedTaskId?: string) => {
         reorderTasks(newTasks, movedTaskId);
         if (isConnected) {
@@ -253,6 +385,164 @@ function App() {
             }));
             ProjectService.batchUpdateTasks(updates).catch(console.error);
         }
+    };
+
+    const [currentFiscalYear, setCurrentFiscalYear] = useState('2024');
+    const [clients, setClients] = useState<any[]>([]); // Start empty as requested
+    const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
+
+    // Initial View & Routing Logic
+    useEffect(() => {
+        if (currentView === 'clients_manage') {
+            setSelectedClientId(null);
+            setSelectedProjectId(null as any);
+        } else if (currentView.startsWith('client_')) {
+            // Context: Client Level (Strategic / Portfolio)
+
+            // Expected: client_{id}_{view}
+
+            // Heuristic parser since ID might have underscores (though we used Date.now())
+            // Safe assumption: view is last part.
+            let viewType = '';
+            let clientId = '';
+
+            if (currentView.endsWith('_reports')) {
+                viewType = 'reports';
+                clientId = currentView.replace('client_', '').replace('_reports', '');
+            } else if (currentView.endsWith('_my_projects')) {
+                viewType = 'my_projects';
+                clientId = currentView.replace('client_', '').replace('_my_projects', '');
+            }
+
+            if (clientId) {
+                setSelectedClientId(clientId);
+                setSelectedProjectId(null as any); // Clear project selection when at client level
+            }
+
+        } else if (currentView.startsWith('project_')) {
+            // Context: Project Level (Operational / Tactical)
+            let projectId = '';
+
+            if (currentView.endsWith('_dashboard')) {
+                projectId = currentView.replace('project_', '').replace('_dashboard', '');
+            } else if (currentView.endsWith('_gantt')) {
+                projectId = currentView.replace('project_', '').replace('_gantt', '');
+            }
+
+            if (projectId) {
+                setSelectedProjectId(projectId);
+                // Also set client context for breadcrumbs/consistency
+                const proj = projects.find(p => p.id === projectId);
+                if (proj && proj.clientId) {
+                    setSelectedClientId(proj.clientId);
+                }
+            }
+        }
+    }, [currentView, projects]); // Added projects dependency to find clientId from project
+
+    const handleCreateClient = async (newClient: any) => {
+        try {
+            await ProjectService.createClient(newClient);
+        } catch (error) {
+            console.error("Error creating client:", error);
+        }
+    };
+
+    const handleUpdateClient = async (updatedClient: any) => {
+        try {
+            const { id, ...data } = updatedClient;
+            await ProjectService.updateClient(id, data);
+        } catch (error) {
+            console.error("Error updating client:", error);
+        }
+    };
+
+    const handleDeleteClient = async (clientId: string) => {
+        try {
+            await ProjectService.deleteClient(clientId);
+        } catch (error) {
+            console.error("Error deleting client:", error);
+        }
+    };
+
+    // Derived State for Rendering
+    const getParsedViewType = () => {
+        if (currentView === 'clients_manage') return 'clients_manage';
+        if (currentView === 'team') return 'team';
+
+        if (currentView.startsWith('client_')) {
+            if (currentView.endsWith('_reports')) return 'reports';
+            if (currentView.endsWith('_my_projects')) return 'my_projects';
+        }
+
+        if (currentView.startsWith('project_')) {
+            if (currentView.endsWith('_dashboard')) return 'dashboard';
+            if (currentView.endsWith('_gantt')) return 'gantt';
+        }
+
+        return 'unknown';
+    };
+
+    const parsedViewType = getParsedViewType();
+
+    // Aggregation Logic for Client Reports (Consolidated & Dynamic)
+    useEffect(() => {
+        if (parsedViewType !== 'reports' || !selectedClientId) return;
+
+        const targetProjects = projects.filter(p => p.clientId === selectedClientId);
+
+        // If no projects, empty tasks
+        if (targetProjects.length === 0) {
+            setClientTasks([]);
+            return;
+        }
+
+        const unsubs: (() => void)[] = [];
+        const taskMap = new Map<string, Task[]>();
+
+        targetProjects.forEach(proj => {
+            try {
+                // Subscribe to each project's tasks
+                const unsub = ProjectService.subscribeTasks(proj.id, (projTasks) => {
+                    taskMap.set(proj.id, projTasks);
+                    const allTasks = Array.from(taskMap.values()).flat();
+                    setClientTasks(allTasks);
+                });
+                unsubs.push(unsub);
+            } catch (e) {
+                console.error("Error aggregating project", proj.id, e);
+                // Fallback Mock
+                const mock = INITIAL_TASKS.filter(t => t.projectId === proj.id);
+                if (mock.length > 0) {
+                    taskMap.set(proj.id, mock);
+                    setClientTasks(Array.from(taskMap.values()).flat());
+                }
+            }
+        });
+
+        return () => {
+            unsubs.forEach(u => u());
+        };
+    }, [parsedViewType, selectedClientId, projects]);
+
+
+    // Filter tasks for the selected project (Operational/Tactical)
+    const projectTasks = selectedProjectId
+        ? tasks.filter(t => t.projectId === selectedProjectId || (t.projectId === '1' && selectedProjectId === '1')) // Compat with mock '1'
+        : [];
+
+    const stats = useMemo(() => {
+        return calculateProjectStats(projectTasks, resources);
+    }, [projectTasks, resources]);
+
+    // Filter projects for the selected client (Strategic)
+    const clientProjects = selectedClientId
+        ? projects.filter(p => p.clientId === selectedClientId)
+        : [];
+
+    // When creating a project in "My Projects" of a client, attach that client ID
+    const handleCreateProjectWrapper = (data: any) => {
+        handleCreateProject({ ...data, clientId: selectedClientId });
     };
 
     const handleIndentTask = (task: Task) => {
@@ -281,15 +571,16 @@ function App() {
         }
     };
 
-    const handleProjectDelete = (projectId: string) => {
-        setProjects(prev => prev.filter(p => p.id !== projectId));
-        // Optional: Also delete tasks for this project if we were doing a full cleanup
-        // But for now just removing the project card is sufficient for the UI view
-    };
 
     return (
         <div className="flex h-screen bg-gray-50 overflow-hidden font-sans">
-            <Sidebar activeView={currentView} onNavigate={setCurrentView} className="hidden lg:flex" />
+            <Sidebar
+                activeView={currentView}
+                onNavigate={setCurrentView}
+                className="hidden lg:flex"
+                clients={clients}
+                projects={projects}
+            />
             <MobileMenu
                 activeView={currentView}
                 onNavigate={setCurrentView}
@@ -298,7 +589,7 @@ function App() {
             />
 
             <div className="flex-1 flex flex-col min-w-0">
-                {/* Top Header */}
+                {/* Header */}
                 <header className="bg-white border-b border-gray-200 h-16 px-8 flex items-center justify-between z-10">
                     <div className="flex items-center gap-4">
                         <button
@@ -307,92 +598,91 @@ function App() {
                         >
                             <Menu size={24} />
                         </button>
-                        <h2 className="text-xl font-bold text-gray-800">SaaS Platform MVP</h2>
+                        <h2 className="text-xl font-bold text-gray-800">
+                            {selectedClientId
+                                ? clients.find(c => c.id === selectedClientId)?.name
+                                : 'Gestão de Projetos'}
+                        </h2>
                         {connectionError ? (
                             <span className="px-3 py-1 bg-red-100 text-red-700 rounded-full text-xs font-semibold flex items-center gap-1" title={connectionError}>
-                                <CloudOff size={12} /> Erro: {connectionError.substring(0, 20)}...
+                                <CloudOff size={12} /> Erro
                             </span>
                         ) : isConnected ? (
                             <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-semibold flex items-center gap-1">
-                                <Database size={12} /> Info: Sinc. Ao Vivo
+                                <Database size={12} /> Live
                             </span>
                         ) : (
                             <span className="px-3 py-1 bg-gray-100 text-gray-500 rounded-full text-xs font-semibold flex items-center gap-1">
-                                <CloudOff size={12} /> Info: Modo Demo
+                                <CloudOff size={12} /> Demo
                             </span>
                         )}
                     </div>
 
                     <div className="flex items-center gap-6">
-                        <div className="relative hidden md:block">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-                            <input
-                                type="text"
-                                placeholder="Buscar tarefas..."
-                                className="pl-10 pr-4 py-2 bg-gray-100 border-none rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 w-64"
-                            />
-                        </div>
-                        <button className="text-gray-500 hover:text-gray-700 relative">
-                            <Bell size={20} />
-                            <span className="absolute top-0 right-0 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
-                        </button>
                         <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold">A</div>
                     </div>
                 </header>
 
                 {/* Main Content */}
                 <main className="flex-1 p-8 overflow-y-auto">
+
+                    {/* View Title Header */}
                     <div className="flex justify-between items-end mb-6">
                         <div>
                             <h1 className="text-2xl font-bold text-gray-900">
-                                {currentView === 'team' ? 'Gestão da Equipe' :
-                                    currentView === 'my_projects' ? 'Portfólio de Projetos' :
-                                        (projects.find(p => p.id === selectedProjectId)?.name || 'Visão Geral do Projeto')}
+                                {parsedViewType === 'team' ? 'Gestão da Equipe' :
+                                    parsedViewType === 'clients_manage' ? 'Gestão de Clientes' :
+                                        parsedViewType === 'my_projects' ? 'Portfólio de Projetos' :
+                                            parsedViewType === 'dashboard' ? 'Relatório Operacional (Execução Diária)' :
+                                                parsedViewType === 'reports' ? 'Relatório Estratégico (Visão Executiva)' :
+                                                    parsedViewType === 'gantt' ? 'Relatório Tático-Gerencial' :
+                                                        (projects.find(p => p.id === selectedProjectId)?.name || 'Visão Geral')}
                             </h1>
                             <p className="text-gray-500 mt-1">
-                                {currentView === 'team' ? 'Sincronizar membros da equipe e funções.' : 'Gerenciar cronograma, recursos e orçamento.'}
+                                {parsedViewType === 'dashboard' ? 'Foco em tarefas, eficiência e rotina do dia a dia.' :
+                                    parsedViewType === 'reports' ? 'Visão de longo prazo, KPIs de portfólio e alinhamento de negócio.' :
+                                        ''}
                             </p>
-                        </div>
-                        <div className="flex items-center">
-                            {/* Actions removed as per request */}
                         </div>
                     </div>
 
-                    {currentView === 'gantt' && (
+                    {/* CLIENTS MANAGEMENT VIEW */}
+                    {parsedViewType === 'clients_manage' && (
+                        <ClientsView
+                            clients={clients}
+                            onCreateClient={handleCreateClient}
+                            onUpdateClient={handleUpdateClient}
+                            onDeleteClient={handleDeleteClient}
+                            currentFiscalYear={currentFiscalYear}
+                            onFiscalYearChange={setCurrentFiscalYear}
+                        />
+                    )}
+
+                    {/* GANTT / TÁTICO VIEW */}
+                    {parsedViewType === 'gantt' && (
                         <>
                             <ProjectSummary stats={stats} />
-
                             <div className="flex border-b border-gray-200 mb-6">
                                 <button
                                     onClick={() => setGanttTab('schedule')}
-                                    className={`px-6 py-3 font-medium text-sm transition-colors border-b-2 ${ganttTab === 'schedule'
-                                        ? 'border-indigo-600 text-indigo-600'
-                                        : 'border-transparent text-gray-500 hover:text-gray-700'
-                                        }`}
+                                    className={`px-6 py-3 font-medium text-sm transition-colors border-b-2 ${ganttTab === 'schedule' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
                                 >
-                                    Cronograma do projeto
+                                    Cronograma
                                 </button>
                                 <button
                                     onClick={() => setGanttTab('tasks')}
-                                    className={`px-6 py-3 font-medium text-sm transition-colors border-b-2 ${ganttTab === 'tasks'
-                                        ? 'border-indigo-600 text-indigo-600'
-                                        : 'border-transparent text-gray-500 hover:text-gray-700'
-                                        }`}
+                                    className={`px-6 py-3 font-medium text-sm transition-colors border-b-2 ${ganttTab === 'tasks' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
                                 >
                                     Tarefas
                                 </button>
                             </div>
-
                             {ganttTab === 'schedule' && (
                                 <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-[650px] flex flex-col mt-8">
                                     <div className="flex-1 overflow-hidden relative">
                                         <GanttChart
-                                            tasks={tasks}
+                                            tasks={projectTasks}
                                             onTaskChange={onTaskChangeWrapper}
-                                            onEditTask={(task) => {
-                                                setEditingTask(task);
-                                                setIsTaskModalOpen(true);
-                                            }}
+                                            onEditTask={(task) => { setEditingTask(task); setIsTaskModalOpen(true); }}
                                             onAddTask={handleCreateClick}
                                             onDeleteTask={handleDeleteTask}
                                             onReorderTasks={handleReorderTasks}
@@ -402,43 +692,42 @@ function App() {
                                     </div>
                                 </div>
                             )}
-
                             {ganttTab === 'tasks' && (
                                 <TaskListView
-                                    tasks={tasks}
+                                    tasks={projectTasks}
                                     resources={resources}
-                                    onEditTask={(task) => {
-                                        setEditingTask(task);
-                                        setIsTaskModalOpen(true);
-                                    }}
+                                    onEditTask={(task) => { setEditingTask(task); setIsTaskModalOpen(true); }}
                                     isConnected={isConnected}
                                 />
                             )}
                         </>
                     )}
 
-                    {currentView === 'team' && (
+                    {/* TEAM VIEW */}
+                    {parsedViewType === 'team' && (
                         <TeamView resources={resources} isConnected={isConnected} />
                     )}
 
-                    {currentView === 'dashboard' && (
-                        <DashboardView tasks={tasks} resources={resources} />
+                    {/* DASHBOARD / OPERACIONAL VIEW */}
+                    {parsedViewType === 'dashboard' && (
+                        <DashboardView tasks={projectTasks} resources={resources} />
                     )}
 
-
-
-                    {currentView === 'reports' && (
-                        <ReportsView tasks={tasks} resources={resources} />
+                    {/* REPORTS / ESTRATÉGICO VIEW */}
+                    {parsedViewType === 'reports' && (
+                        <ReportsView tasks={clientTasks} resources={resources} projects={clientProjects} />
                     )}
 
-                    {currentView === 'my_projects' && (
+                    {/* MY PROJECTS VIEW */}
+                    {parsedViewType === 'my_projects' && (
                         <MyProjectsView
-                            projects={projects}
-                            onCreateProject={handleCreateProject}
+                            projects={clientProjects}
+                            onCreateProject={handleCreateProjectWrapper}
+                            onUpdateProject={handleUpdateProject}
                             onDeleteProject={handleProjectDelete}
                             onSelectProject={(id) => {
                                 setSelectedProjectId(id);
-                                setCurrentView('gantt');
+                                setCurrentView(`client_${selectedClientId}_gantt`);
                             }}
                         />
                     )}

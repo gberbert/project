@@ -17,8 +17,30 @@ import { Project, Task, Resource } from '../types';
 const PROJECTS_COL = 'projects';
 const TASKS_COL = 'tasks';
 const RESOURCES_COL = 'resources';
+const CLIENTS_COL = 'clients';
 
 export const ProjectService = {
+    // --- Clients ---
+    subscribeClients: (callback: (clients: any[]) => void) => {
+        return onSnapshot(collection(db, CLIENTS_COL), (snapshot) => {
+            const clients = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            callback(clients);
+        });
+    },
+
+    createClient: async (client: any) => {
+        return addDoc(collection(db, CLIENTS_COL), client);
+    },
+
+    updateClient: async (clientId: string, updates: any) => {
+        const ref = doc(db, CLIENTS_COL, clientId);
+        return updateDoc(ref, updates);
+    },
+
+    deleteClient: async (clientId: string) => {
+        return deleteDoc(doc(db, CLIENTS_COL, clientId));
+    },
+
     // --- Projects ---
     subscribeProjects: (callback: (projects: Project[]) => void) => {
         return onSnapshot(collection(db, PROJECTS_COL), (snapshot) => {
@@ -29,6 +51,15 @@ export const ProjectService = {
 
     createProject: async (project: Omit<Project, 'id'>) => {
         return addDoc(collection(db, PROJECTS_COL), project);
+    },
+
+    updateProject: async (projectId: string, updates: Partial<Project>) => {
+        const ref = doc(db, PROJECTS_COL, projectId);
+        return updateDoc(ref, updates);
+    },
+
+    deleteProject: async (projectId: string) => {
+        return deleteDoc(doc(db, PROJECTS_COL, projectId));
     },
 
     // --- Tasks ---
@@ -147,6 +178,6 @@ export const ProjectService = {
             }
         ];
 
-        // Insert tasks logic would go here... simplified for now.
+
     }
 };
