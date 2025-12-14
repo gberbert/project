@@ -1,0 +1,581 @@
+import { Task, Resource } from '../types';
+import { useState, useEffect, useRef } from 'react';
+import { X, Plus, Link2, ArrowRightCircle, ArrowLeftCircle, Calendar as CalendarIcon, ChevronLeft, ChevronRight } from 'lucide-react';
+import {
+    format, startOfMonth, endOfMonth, eachDayOfInterval,
+    startOfWeek, endOfWeek, addMonths, subMonths,
+    isSameMonth, isSameDay, isWithinInterval, isBefore, isAfter, isWeekend, addDays
+} from 'date-fns';
+import { ptBR } from 'date-fns/locale';
+
+interface TaskFormProps {
+    task?: Task;
+    allTasks: Task[];
+    resources: Resource[];
+    onSave: (task: Task) => void;
+    onCancel: () => void;
+}
+
+export const TaskForm = ({ task, allTasks, resources, onSave, onCancel }: TaskFormProps) => {
+    const defaultTask = {
+        name: '',
+        progress: 0,
+        type: 'task' as const,
+        start: new Date(),
+        end: new Date(),
+        dependencies: [],
+        resourceId: ''
+    };
+
+    const [formData, setFormData] = useState<Partial<Task>>(task || defaultTask);
+
+    useEffect(() => {
+        if (task) {
+            // Ensure dependencies is always an array
+            setFormData({
+                ...task,
+                dependencies: task.dependencies || []
+            });
+        } else {
+            setFormData(defaultTask);
+        }
+    }, [task]);
+
+    const [newDependencyId, setNewDependencyId] = useState('');
+
+
+
+    const [isCalendarOpen, setIsCalendarOpen] = useState(false);
+    const [viewDate, setViewDate] = useState(new Date());
+    const calendarRef = useRef<HTMLDivElement>(null);
+    const [selectionStep, setSelectionStep] = useState<'start' | 'end'>('start');
+
+    // Realizado State
+    const [isRealCalendarOpen, setIsRealCalendarOpen] = useState(false);
+    const [viewRealDate, setViewRealDate] = useState(new Date());
+    const realCalendarRef = useRef<HTMLDivElement>(null);
+    const [realSelectionStep, setRealSelectionStep] = useState<'start' | 'end'>('start');
+
+    // Init view date based on task start
+    useEffect(() => {
+        if (task) {
+            if (formData.start) setViewDate(formData.start);
+            if (formData.realStart) setViewRealDate(formData.realStart);
+        }
+    }, [task]);
+
+    useEffect(() => {
+        function handleClickOutside(event: MouseEvent) {
+            if (calendarRef.current && !calendarRef.current.contains(event.target as Node)) {
+                setIsCalendarOpen(false);
+            }
+            if (realCalendarRef.current && !realCalendarRef.current.contains(event.target as Node)) {
+                setIsRealCalendarOpen(false);
+            }
+        }
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => {
+            document.removeEventListener("mousedown", handleClickOutside);
+        };
+    }, []);
+
+    const handleDateClick = (date: Date) => {
+        // Normalize date to noon 
+        const newDate = new Date(date);
+        newDate.setHours(12, 0, 0, 0);
+
+        if (selectionStep === 'start') {
+            setFormData(prev => ({ ...prev, start: newDate, end: newDate }));
+            setSelectionStep('end');
+        } else {
+            const currentStart = formData.start || newDate;
+            if (isBefore(newDate, currentStart)) {
+                setFormData(prev => ({ ...prev, start: newDate, end: currentStart }));
+            } else {
+                setFormData(prev => ({ ...prev, end: newDate }));
+            }
+            setSelectionStep('start');
+            setIsCalendarOpen(false);
+        }
+    };
+
+    const handleRealDateClick = (date: Date) => {
+        const newDate = new Date(date);
+        newDate.setHours(12, 0, 0, 0);
+
+        if (realSelectionStep === 'start') {
+            setFormData(prev => ({ ...prev, realStart: newDate, realEnd: newDate }));
+            setRealSelectionStep('end');
+        } else {
+            const currentStart = formData.realStart || newDate;
+            if (isBefore(newDate, currentStart)) {
+                setFormData(prev => ({ ...prev, realStart: newDate, realEnd: currentStart }));
+            } else {
+                setFormData(prev => ({ ...prev, realEnd: newDate }));
+            }
+            setRealSelectionStep('start');
+            setIsRealCalendarOpen(false);
+        }
+    };
+
+    const handleMonthChange = (amt: number, isReal: boolean = false) => {
+        if (isReal) setViewRealDate(prev => addMonths(prev, amt));
+        else setViewDate(prev => addMonths(prev, amt));
+    };
+
+    // Generate Calendar Days (Est)
+    const monthStart = startOfMonth(viewDate);
+    const monthEnd = endOfMonth(monthStart);
+    const calendarDays = eachDayOfInterval({ start: startOfWeek(monthStart), end: endOfWeek(monthEnd) });
+
+    // Generate Calendar Days (Real)
+    const realMonthStart = startOfMonth(viewRealDate);
+    const realMonthEnd = endOfMonth(realMonthStart);
+    const realCalendarDays = eachDayOfInterval({ start: startOfWeek(realMonthStart), end: endOfWeek(realMonthEnd) });
+
+    // Successors: Tasks that have THIS task in THEIR dependency list
+    // (Only relevant if editing an existing task with an ID)
+    const successors = task?.id
+        ? allTasks.filter(t => t.dependencies?.includes(task.id))
+        : [];
+
+
+    const availableTasks = allTasks.filter(t =>
+        t.id !== task?.id && // Not self
+        !formData.dependencies?.includes(t.id) && // Not already a dependency
+        t.type !== 'project' // Usually don't depend on project containers directly, but option exists
+    );
+
+    const handleAddDependency = () => {
+        if (!newDependencyId) return;
+        const currentDeps = formData.dependencies || [];
+        setFormData(prev => ({ ...prev, dependencies: [...currentDeps, newDependencyId] }));
+        setNewDependencyId('');
+    };
+
+    const handleRemoveDependency = (removeId: string) => {
+        const currentDeps = formData.dependencies || [];
+        setFormData(prev => ({ ...prev, dependencies: currentDeps.filter(id => id !== removeId) }));
+    };
+
+    const countBusinessDays = (startDate: Date | undefined, endDate: Date | undefined) => {
+        if (!startDate || !endDate) return 0;
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        start.setHours(12, 0, 0, 0);
+        end.setHours(12, 0, 0, 0);
+
+        if (isAfter(start, end)) return 0;
+
+        let count = 0;
+        let current = start;
+        while (current <= end) {
+            if (!isWeekend(current)) count++;
+            current = addDays(current, 1);
+        }
+        return count;
+    };
+
+    const handleSubmit = (e?: React.FormEvent | React.MouseEvent) => {
+        if (e) e.preventDefault();
+
+        // Basic validation
+        if (!formData.name || !formData.start || !formData.end) {
+            alert('Por favor preencha todos os campos obrigatórios (Nome, Início, Fim).');
+            return;
+        }
+
+        // Clean dependencies: Remove duplicates, self-reference, and non-existent IDs
+        const uniqueDependencies = [...new Set(formData.dependencies || [])];
+        const validDependencies = uniqueDependencies.filter(depId =>
+            depId !== task?.id && allTasks.some(t => t.id === depId)
+        );
+
+        onSave({
+            ...formData,
+            dependencies: validDependencies
+        } as Task);
+    };
+
+
+
+    return (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm p-4 animate-in fade-in zoom-in-95 duration-200">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+                <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                    <h2 className="text-xl font-bold text-gray-800">{task ? 'Editar Tarefa' : 'Nova Tarefa'}</h2>
+                    <button onClick={onCancel} className="text-gray-400 hover:text-gray-600">
+                        <X size={24} />
+                    </button>
+                </div>
+
+                <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-6">
+                    {/* Basic Info */}
+                    <div className="space-y-4">
+                        <h3 className="font-semibold text-gray-900 border-b pb-2 mb-4">Informações Gerais</h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="md:col-span-2">
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Nome da Tarefa</label>
+                                <input
+                                    type="text"
+                                    value={formData.name || ''}
+                                    onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                                    className="w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 border p-2.5"
+                                    required
+                                    placeholder="ex: Design da Homepage"
+                                />
+                            </div>
+
+                            <div className="relative" ref={calendarRef}>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Estimativa (Planejado)</label>
+                                <div
+                                    onClick={() => setIsCalendarOpen(!isCalendarOpen)}
+                                    className="w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 border p-2.5 flex items-center justify-between cursor-pointer hover:bg-gray-50 bg-white"
+                                >
+                                    <div className="flex items-center gap-2 text-gray-700">
+                                        <CalendarIcon size={18} className="text-gray-400" />
+                                        <span className="font-medium">
+                                            {formData.start ? format(formData.start, 'dd/MM/yyyy') : '__/__/____'}
+                                            {'  -  '}
+                                            {formData.end ? format(formData.end, 'dd/MM/yyyy') : '__/__/____'}
+                                        </span>
+                                    </div>
+                                    <div className="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded">
+                                        {formData.start && formData.end
+                                            ? `${countBusinessDays(formData.start, formData.end)} dias úteis`
+                                            : 'Selecione'}
+                                    </div>
+                                </div>
+
+                                {isCalendarOpen && (
+                                    <div className="absolute top-full left-0 z-50 mt-1 bg-white rounded-lg shadow-xl border border-gray-200 p-4 w-[320px] animate-in fade-in zoom-in-95 duration-150">
+                                        <div className="flex justify-between items-center mb-4">
+                                            <button type="button" onClick={() => handleMonthChange(-1, false)} className="p-1 hover:bg-gray-100 rounded-full text-gray-600"><ChevronLeft size={20} /></button>
+                                            <span className="font-semibold text-gray-700 capitalize">
+                                                {format(viewDate, 'MMMM yyyy', { locale: ptBR })}
+                                            </span>
+                                            <button type="button" onClick={() => handleMonthChange(1, false)} className="p-1 hover:bg-gray-100 rounded-full text-gray-600"><ChevronRight size={20} /></button>
+                                        </div>
+                                        <div className="grid grid-cols-7 gap-1 mb-2 text-center text-xs font-medium text-gray-400">
+                                            {['D', 'S', 'T', 'Q', 'Q', 'S', 'S'].map((d, i) => <div key={i}>{d}</div>)}
+                                        </div>
+                                        <div className="grid grid-cols-7 gap-1">
+                                            {calendarDays.map((day, idx) => {
+                                                const isStart = formData.start ? isSameDay(day, formData.start) : false;
+                                                const isEnd = formData.end ? isSameDay(day, formData.end) : false;
+                                                const inRange = formData.start && formData.end ? isWithinInterval(day, { start: formData.start!, end: formData.end! }) : false;
+                                                const isCurrentMonth = isSameMonth(day, viewDate);
+
+                                                return (
+                                                    <button
+                                                        key={idx}
+                                                        type="button"
+                                                        onClick={() => handleDateClick(day)}
+                                                        className={`
+                                                            h-9 w-9 flex items-center justify-center text-sm transition-all relative rounded-full
+                                                            ${!isCurrentMonth ? 'text-gray-300' : 'text-gray-700 hover:bg-indigo-50'}
+                                                            ${inRange && !isStart && !isEnd ? 'bg-indigo-50 text-indigo-700 rounded-none' : ''}
+                                                            ${(isStart || isEnd) ? 'bg-indigo-600 text-white shadow-md z-10 font-bold' : ''}
+                                                            ${isStart && formData.end && !isSameDay(formData.start, formData.end) ? 'rounded-r-none' : ''}
+                                                            ${isEnd && formData.start && !isSameDay(formData.start, formData.end) ? 'rounded-l-none' : ''}
+                                                        `}
+                                                    >
+                                                        {format(day, 'd')}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                        <div className="mt-4 pt-3 border-t border-gray-100 text-xs text-center text-gray-500 bg-gray-50 rounded-b-lg -mb-4 -mx-4 pb-4">
+                                            {selectionStep === 'start' ? 'Selecione a data de Início' : 'Selecione a data de Fim'}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="relative" ref={realCalendarRef}>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Realizado (Executado)</label>
+                                <div
+                                    onClick={() => setIsRealCalendarOpen(!isRealCalendarOpen)}
+                                    className="w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 border p-2.5 flex items-center justify-between cursor-pointer hover:bg-gray-50 bg-white"
+                                >
+                                    <div className="flex items-center gap-2 text-gray-700">
+                                        <CalendarIcon size={18} className="text-gray-400" />
+                                        <span className="font-medium">
+                                            {formData.realStart ? format(formData.realStart, 'dd/MM/yyyy') : '__/__/____'}
+                                            {'  -  '}
+                                            {formData.realEnd ? format(formData.realEnd, 'dd/MM/yyyy') : '__/__/____'}
+                                        </span>
+                                    </div>
+                                    <div className="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded">
+                                        {formData.realStart && formData.realEnd
+                                            ? `${countBusinessDays(formData.realStart, formData.realEnd)} dias úteis`
+                                            : 'Selecione'}
+                                    </div>
+                                </div>
+
+                                {isRealCalendarOpen && (
+                                    <div className="absolute top-full right-0 md:left-auto md:right-0 lg:left-0 lg:right-auto z-50 mt-1 bg-white rounded-lg shadow-xl border border-gray-200 p-4 w-[320px] animate-in fade-in zoom-in-95 duration-150">
+                                        <div className="flex justify-between items-center mb-4">
+                                            <button type="button" onClick={() => handleMonthChange(-1, true)} className="p-1 hover:bg-gray-100 rounded-full text-gray-600"><ChevronLeft size={20} /></button>
+                                            <span className="font-semibold text-gray-700 capitalize">
+                                                {format(viewRealDate, 'MMMM yyyy', { locale: ptBR })}
+                                            </span>
+                                            <button type="button" onClick={() => handleMonthChange(1, true)} className="p-1 hover:bg-gray-100 rounded-full text-gray-600"><ChevronRight size={20} /></button>
+                                        </div>
+                                        <div className="grid grid-cols-7 gap-1 mb-2 text-center text-xs font-medium text-gray-400">
+                                            {['D', 'S', 'T', 'Q', 'Q', 'S', 'S'].map((d, i) => <div key={i}>{d}</div>)}
+                                        </div>
+                                        <div className="grid grid-cols-7 gap-1">
+                                            {realCalendarDays.map((day, idx) => {
+                                                const isStart = formData.realStart ? isSameDay(day, formData.realStart) : false;
+                                                const isEnd = formData.realEnd ? isSameDay(day, formData.realEnd) : false;
+                                                const inRange = formData.realStart && formData.realEnd ? isWithinInterval(day, { start: formData.realStart!, end: formData.realEnd! }) : false;
+                                                const isCurrentMonth = isSameMonth(day, viewRealDate);
+
+                                                return (
+                                                    <button
+                                                        key={idx}
+                                                        type="button"
+                                                        onClick={() => handleRealDateClick(day)}
+                                                        className={`
+                                                            h-9 w-9 flex items-center justify-center text-sm transition-all relative rounded-full
+                                                            ${!isCurrentMonth ? 'text-gray-300' : 'text-gray-700 hover:bg-indigo-50'}
+                                                            ${inRange && !isStart && !isEnd ? 'bg-indigo-50 text-indigo-700 rounded-none' : ''}
+                                                            ${(isStart || isEnd) ? 'bg-indigo-600 text-white shadow-md z-10 font-bold' : ''}
+                                                            ${isStart && formData.realEnd && !isSameDay(formData.realStart, formData.realEnd) ? 'rounded-r-none' : ''}
+                                                            ${isEnd && formData.realStart && !isSameDay(formData.realStart, formData.realEnd) ? 'rounded-l-none' : ''}
+                                                        `}
+                                                    >
+                                                        {format(day, 'd')}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                        <div className="mt-4 pt-3 border-t border-gray-100 text-xs text-center text-gray-500 bg-gray-50 rounded-b-lg -mb-4 -mx-4 pb-4">
+                                            {realSelectionStep === 'start' ? 'Selecione a data de Início Real' : 'Selecione a data de Fim Real'}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Resources & Progress */}
+                    <div className="space-y-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Status & Percentual</label>
+                                <div className="flex gap-2 items-center">
+                                    <select
+                                        value={(formData.progress ?? 0) >= 100 ? 'DONE' :
+                                            (formData.progress ?? 0) >= 75 ? 'REVIEW' :
+                                                (formData.progress ?? 0) >= 50 ? 'IN_PROGRESS' :
+                                                    (formData.progress ?? 0) >= 25 ? 'STARTING' : 'TODO'}
+                                        onChange={(e) => {
+                                            const status = e.target.value;
+                                            let newProgress = 0;
+                                            switch (status) {
+                                                case 'DONE': newProgress = 100; break;
+                                                case 'REVIEW': newProgress = 75; break;
+                                                case 'IN_PROGRESS': newProgress = 50; break;
+                                                case 'STARTING': newProgress = 25; break;
+                                                default: newProgress = 0;
+                                            }
+                                            setFormData(prev => ({ ...prev, progress: newProgress }));
+                                        }}
+                                        className="flex-1 rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 border p-2.5"
+                                    >
+                                        <option value="TODO">A Fazer (0-24%)</option>
+                                        <option value="STARTING">Iniciando (25-49%)</option>
+                                        <option value="IN_PROGRESS">Em Andamento (50-74%)</option>
+                                        <option value="REVIEW">Quase Lá (75-99%)</option>
+                                        <option value="DONE">Concluído (100%)</option>
+                                    </select>
+
+                                    <div className="flex items-center gap-2 w-40 shrink-0">
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            max="100"
+                                            value={formData.progress ?? ''}
+                                            onChange={(e) => {
+                                                const valStr = e.target.value;
+                                                if (valStr === '') {
+                                                    setFormData(prev => ({ ...prev, progress: undefined }));
+                                                    return;
+                                                }
+                                                let val = parseInt(valStr);
+                                                if (isNaN(val)) val = 0;
+                                                if (val < 0) val = 0;
+                                                if (val > 100) val = 100;
+                                                setFormData(prev => ({ ...prev, progress: val }));
+                                            }}
+                                            className="w-full text-center rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 border p-2.5"
+                                        />
+                                        <span className="text-gray-500 font-medium">%</span>
+                                    </div>
+                                </div>
+                                {task?.type === 'project' && (
+                                    <p className="text-[10px] text-amber-600 mt-1">
+                                        * Progresso de projetos é calculado automaticamente pelas sub-tarefas. Alterações manuais podem ser sobrescritas.
+                                    </p>
+                                )}
+                            </div>
+
+                            <div className="md:col-span-2">
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Tarefa Pai (Hierarquia)</label>
+                                <select
+                                    value={formData.parent || ''}
+                                    onChange={(e) => setFormData(prev => ({ ...prev, parent: e.target.value }))}
+                                    className="w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 border p-2.5"
+                                >
+                                    <option value="auto-id-1">-- Nenhuma (Raiz) --</option>
+                                    {allTasks
+                                        .filter(t => t.id !== task?.id) // Prevent selecting self
+                                        .map(t => {
+                                            // Calculate "depth" simplistically or just use visual cues if we knew depth. 
+                                            // Since we don't have depth pre-calced in this flat list easily without processing,
+                                            // we can accept flat list or try to show existing parents.
+                                            // Let's just show the name. To do indented tree here requires sorting/recursion.
+                                            // For now, let's keep it simple as requested "indentation tabular" might imply complex tree sort.
+                                            // However, user said "setar a tarefa como filha coloque ela em uma identação tabular o nome da tarefa 1X depois da tarefa pai dela."
+                                            // This usually refers to the VIEW in the Gantt Chart, not necessarily this dropdown, or does he mean the dropdown too?
+                                            // "1X depois da tarefa pai dela" suggests the dropdown needs to show hierarchy.
+                                            // To do that, we need to sort `allTasks` by hierarchy order (which `recalculateProject` usually does or returns)
+                                            // If `allTasks` is already sorted by display order (it is in `tasks` prop usually), we just need depth.
+                                            // We don't have depth property on Task type yet probably.
+                                            // Let's check `types.ts`? No tool call allowed now.
+                                            // We can hack depth search for now.
+                                            let depth = 0;
+                                            let p = t.parent;
+                                            while (p && p !== 'auto-id-1') {
+                                                depth++;
+                                                const parent = allTasks.find(pt => pt.id === p);
+                                                p = parent ? parent.parent : undefined;
+                                            }
+
+                                            return (
+                                                <option key={t.id} value={t.id}>
+                                                    {Array(depth).fill('\u00A0\u00A0\u00A0\u00A0').join('')} {t.name}
+                                                </option>
+                                            );
+                                        })}
+                                </select>
+                                <p className="text-xs text-gray-400 mt-1">Defina a qual tarefa esta sub-tarefa pertence.</p>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Recurso Atribuído</label>
+                                <select
+                                    value={formData.resourceId || ''}
+                                    onChange={(e) => setFormData(prev => ({ ...prev, resourceId: e.target.value }))}
+                                    className="w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 border p-2.5"
+                                >
+                                    <option value="">-- Não Atribuído --</option>
+                                    {resources.map(r => (
+                                        <option key={r.id} value={r.id}>{r.name} ({r.role})</option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Dependencies Section */}
+                    <div className="space-y-4">
+                        <h3 className="font-semibold text-gray-900 border-b pb-2 mb-4 flex items-center gap-2">
+                            <Link2 size={18} />
+                            Dependências
+                        </h3>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            {/* Predecessors (Upstream) */}
+                            <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                                <h4 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
+                                    <ArrowLeftCircle size={16} className="text-amber-600" />
+                                    Predecessoras (Depende de)
+                                </h4>
+                                <div className="space-y-2 mb-4 max-h-40 overflow-y-auto">
+                                    {(formData.dependencies || []).length === 0 && <p className="text-xs text-gray-400 italic">Nenhuma dependência selecionada.</p>}
+                                    {(formData.dependencies || []).map(depId => {
+                                        const depTask = allTasks.find(t => t.id === depId);
+                                        return (
+                                            <div key={depId} className="flex justify-between items-center bg-white p-2 rounded shadow-sm border border-gray-100 text-sm">
+                                                <span className="truncate flex-1" title={depTask ? depTask.name : depId}>
+                                                    {depTask ? depTask.name : <span className="text-red-400 italic">Tarefa Desconhecida ({depId})</span>}
+                                                </span>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleRemoveDependency(depId)}
+                                                    className="text-red-400 hover:text-red-600 p-1"
+                                                    title="Remover Dependência"
+                                                >
+                                                    <X size={14} />
+                                                </button>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                                <div className="flex gap-2">
+                                    <select
+                                        value={newDependencyId}
+                                        onChange={(e) => setNewDependencyId(e.target.value)}
+                                        className="flex-1 text-sm rounded-md border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 border p-1.5"
+                                    >
+                                        <option value="">Selecione...</option>
+                                        {availableTasks.map(t => (
+                                            <option key={t.id} value={t.id}>{t.name}</option>
+                                        ))}
+                                    </select>
+                                    <button
+                                        type="button"
+                                        onClick={handleAddDependency}
+                                        disabled={!newDependencyId}
+                                        className="bg-indigo-600 text-white px-3 py-1.5 rounded-md text-sm hover:bg-indigo-700 disabled:opacity-50"
+                                    >
+                                        <Plus size={16} />
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Successors (Downstream) - Read Only essentially */}
+                            <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 opacity-80">
+                                <h4 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
+                                    <ArrowRightCircle size={16} className="text-blue-600" />
+                                    Sucessoras (Bloqueando)
+                                </h4>
+                                <div className="space-y-2 max-h-40 overflow-y-auto">
+                                    {successors.length === 0 && <p className="text-xs text-gray-400 italic">Nenhuma tarefa depende desta.</p>}
+                                    {successors.map(succ => (
+                                        <div key={succ.id} className="bg-white p-2 rounded shadow-sm border border-gray-100 text-sm text-gray-600">
+                                            {succ.name}
+                                        </div>
+                                    ))}
+                                </div>
+                                <p className="text-[10px] text-gray-400 mt-2">
+                                    * Para modificar sucessoras, edite as predecessoras da tarefa dependente.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                </form >
+
+                <div className="p-4 border-t border-gray-100 flex justify-end gap-3 bg-gray-50">
+                    <button
+                        type="button"
+                        onClick={onCancel}
+                        className="px-5 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 shadow-sm"
+                    >
+                        Cancelar
+                    </button>
+                    <button
+                        type="button"
+                        onClick={handleSubmit}
+                        className="px-5 py-2.5 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 shadow-md"
+                    >
+                        Salvar Alterações
+                    </button>
+                </div>
+            </div >
+        </div >
+    );
+};
