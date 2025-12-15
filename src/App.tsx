@@ -199,12 +199,24 @@ function App() {
     const [resources, setResources] = useState<Resource[]>(MOCK_RESOURCES);
     const [isConnected, setIsConnected] = useState(false);
     const [connectionError, setConnectionError] = useState<string | null>(null);
+    const [isOnline, setIsOnline] = useState(navigator.onLine);
     const [currentView, setCurrentView] = useState('gantt');
     const [ganttTab, setGanttTab] = useState<'schedule' | 'tasks'>('schedule');
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
     const [selectedProjectId, setSelectedProjectId] = useState<string>('1');
     const [clientTasks, setClientTasks] = useState<Task[]>([]);
+
+    useEffect(() => {
+        const handleOnline = () => setIsOnline(true);
+        const handleOffline = () => setIsOnline(false);
+        window.addEventListener('online', handleOnline);
+        window.addEventListener('offline', handleOffline);
+        return () => {
+            window.removeEventListener('online', handleOnline);
+            window.removeEventListener('offline', handleOffline);
+        };
+    }, []);
 
     // Projects State
     const [projects, setProjects] = useState<Project[]>([]);
@@ -603,7 +615,11 @@ function App() {
                                 ? clients.find(c => c.id === selectedClientId)?.name
                                 : 'Gestão de Projetos'}
                         </h2>
-                        {connectionError ? (
+                        {!isOnline ? (
+                            <span className="px-3 py-1 bg-yellow-100 text-yellow-800 rounded-full text-xs font-semibold flex items-center gap-1" title="Sem conexão com a internet">
+                                <CloudOff size={12} /> Offline
+                            </span>
+                        ) : connectionError ? (
                             <span className="px-3 py-1 bg-red-100 text-red-700 rounded-full text-xs font-semibold flex items-center gap-1" title={connectionError}>
                                 <CloudOff size={12} /> Erro
                             </span>

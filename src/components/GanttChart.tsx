@@ -3,7 +3,7 @@ import "gantt-task-react/dist/index.css";
 import { Task } from '../types';
 import React, { useMemo, useState, useEffect } from 'react';
 import { checkIsHoliday } from '../lib/utils';
-import { Plus, ChevronLeft, ChevronRight, CornerDownRight, GripVertical, Trash2, Smartphone, Minimize2, ZoomOut, ZoomIn } from 'lucide-react';
+import { Plus, Minus, ChevronLeft, ChevronRight, GripVertical, Trash2, Smartphone, Minimize2, ZoomOut, ZoomIn } from 'lucide-react';
 import {
     DndContext,
     closestCenter,
@@ -45,7 +45,9 @@ const SortableTaskRow = ({
     onIndent,
     onOutdent,
     onDeleteTask,
-    isCompact
+    isCompact,
+    onToggleCollapse,
+    isCollapsed
 }: {
     task: GanttLibTask;
     originalTask?: Task;
@@ -58,6 +60,8 @@ const SortableTaskRow = ({
     onOutdent: (t: Task) => void;
     onDeleteTask?: (taskId: string) => void;
     isCompact?: boolean;
+    onToggleCollapse?: (taskId: string) => void;
+    isCollapsed?: boolean;
 }) => {
     const {
         attributes,
@@ -111,9 +115,21 @@ const SortableTaskRow = ({
                     </div>
                 )}
 
-                {/* Hierarchy Indentation Visual */}
+                {/* Hierarchy Indentation & Expander */}
                 <div style={{ paddingLeft: `${paddingLeft}px` }} className="flex items-center">
-                    {task.type === 'project' ? <CornerDownRight size={isCompact ? 10 : 14} className="text-gray-400 mr-1" /> : null}
+                    {task.type === 'project' ? (
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                if (onToggleCollapse) onToggleCollapse(task.id);
+                            }}
+                            className="mr-2 p-0.5 rounded-sm flex items-center justify-center transition-colors shadow-sm bg-white hover:bg-indigo-50 text-indigo-600 ring-1 ring-indigo-600"
+                            style={{ width: 18, height: 18 }}
+                            title={isCollapsed ? "Expandir" : "Recolher"}
+                        >
+                            {isCollapsed ? <Plus size={12} strokeWidth={3} /> : <Minus size={12} strokeWidth={3} />}
+                        </button>
+                    ) : null}
                 </div>
 
                 {/* Name (Click to Edit) */}
@@ -125,7 +141,6 @@ const SortableTaskRow = ({
                     {originalTask ? originalTask.name : task.name}
                 </div>
 
-                {/* Indent/Outdent Buttons (Visible on Hover) - Hide in compact to save space */}
                 {/* Indent/Outdent Buttons (Visible on Hover) - Hide in compact to save space */}
                 {!isCompact && (
                     <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-opacity mr-2">
@@ -185,6 +200,14 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
     // Zoom control for landscape (compact mode)
     const [isCompact, setIsCompact] = useState(false);
     const [view, setView] = useState<ViewMode>(ViewMode.Day);
+    const [collapsedTaskIds, setCollapsedTaskIds] = useState<string[]>([]);
+
+    const toggleTaskCollapse = (taskId: string) => {
+        setCollapsedTaskIds(prev => prev.includes(taskId)
+            ? prev.filter(id => id !== taskId)
+            : [...prev, taskId]
+        );
+    };
 
     useEffect(() => {
         if (isLandscapeMode) {
@@ -222,26 +245,20 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
         const container = containerRef.current;
         if (!container) return;
 
-        let observer: MutationObserver; // Defined locally
+        let observer: MutationObserver;
 
         const applyStyles = () => {
-            // Suspend observer to prevent infinite loop
             if (observer) observer.disconnect();
 
             const svgs = Array.from(container.querySelectorAll('svg'));
-            const strokeWidth = isCompact ? '32px' : '64px';
 
-            // Constants for Holiday Logic
+            // Constants
             const monthMap: Record<string, number> = {
                 'janeiro': 0, 'fevereiro': 1, 'março': 2, 'abril': 3, 'maio': 4, 'junho': 5,
                 'julho': 6, 'agosto': 7, 'setembro': 8, 'outubro': 9, 'novembro': 10, 'dezembro': 11,
                 'jan': 0, 'fev': 1, 'mar': 2, 'abr': 3, 'mai': 4, 'jun': 5,
                 'jul': 6, 'ago': 7, 'set': 8, 'out': 9, 'nov': 10, 'dez': 11
             };
-            let currentMonth = new Date().getMonth();
-            let currentYear = new Date().getFullYear();
-
-            // Date Text Replacement Map (Seg., 09 -> S-09)
             const dayMap: Record<string, string> = {
                 'Seg.,': 'S', 'Ter.,': 'T', 'Qua.,': 'Q', 'Qui.,': 'Q', 'Sex.,': 'S', 'Sáb.,': 'S', 'Dom.,': 'D',
                 'seg.,': 's', 'ter.,': 't', 'qua.,': 'q', 'qui.,': 'q', 'sex.,': 's', 'sáb.,': 's', 'dom.,': 'd'
@@ -250,15 +267,23 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
             const today = new Date();
             today.setHours(0, 0, 0, 0);
 
+            // Phase 1: Identify Highlights (Scan Text)
+            type Highlight = { x: number; type: 'today' | 'holiday' | 'weekend'; sourceSvg: SVGSVGElement };
+            const highlights: Highlight[] = [];
+            const processedXs = new Set<number>();
+
             svgs.forEach(svg => {
-                // --- 1. Holiday & Date Text Logic ---
                 const textElements = Array.from(svg.querySelectorAll('text'));
 
-                // Identify Month/Year context
+                // Initial Month/Year for this SVG
+                let currentMonth = new Date().getMonth();
+                let currentYear = new Date().getFullYear();
+
                 const monthText = textElements.find(el => {
                     const txt = el.textContent?.toLowerCase() || '';
                     return Object.keys(monthMap).some(m => txt.includes(m));
                 });
+
                 if (monthText) {
                     const txt = monthText.textContent?.toLowerCase() || '';
                     const foundMonthKey = Object.keys(monthMap).find(m => txt.includes(m));
@@ -269,15 +294,18 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                     }
                 }
 
-                // Process each text element (Dates and Holidays)
+                let lastDay = -1;
+
                 textElements.forEach(el => {
                     let txt = el.textContent || '';
-
-                    // Skip if this is our custom icon text "!"
                     if (txt === '!') return;
 
-                    // --- Text Replacement: W -> S (Semana) in Week View ---
-                    // --- Text Replacement: W -> S (Semana) in Week View ---
+                    const textX = parseFloat(el.getAttribute('x') || '0');
+                    if (textX <= 0) return;
+                    if (processedXs.has(textX)) return;
+
+                    // Date Text Logic (Keep styling for Text itself here)
+                    // --- Text Replacement: W -> S ---
                     const wMatch = txt.match(/^[WS](\d+)$/);
                     if (wMatch && view === ViewMode.Week) {
                         const newText = `S${wMatch[1]}`;
@@ -285,108 +313,178 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                             el.textContent = newText;
                             txt = newText;
                         }
-
-                        // Reset styling to prevent holiday coloring and ensure clean look
                         el.style.fill = '#6b7280';
                         el.style.fontWeight = '600';
 
-                        // Center text
                         const currentAnchor = el.getAttribute('text-anchor');
                         if (currentAnchor !== 'middle') {
-                            const currentX = parseFloat(el.getAttribute('x') || '0');
-                            if (currentX > 0) {
-                                const width = isCompact ? 80 : 130;
-                                el.setAttribute('x', (currentX + (width / 2)).toString());
-                                el.setAttribute('text-anchor', 'middle');
-                            }
+                            el.setAttribute('x', (textX + (columnWidth / 2)).toString());
+                            el.setAttribute('text-anchor', 'middle');
                         }
-
-                        return; // Skip holiday logic
+                        return;
                     }
 
-                    // --- Date Text Replacement (Landscape ONLY) ---
+                    // --- Landscape Date ---
                     if (isLandscapeMode) {
-                        // Regex looks for "Seg., 12" pattern
                         const match = txt.match(/([a-zA-ZáàâãéèêíïóôõöúçñÁÀÂÃÉÈÍÏÓÔÕÖÚÇÑ]+\.,)\s*(\d+)/);
                         if (match) {
-                            const [fullMatch, dayName, dayNum] = match;
+                            const [_, dayName, dayNum] = match;
                             if (dayMap[dayName]) {
                                 const newText = `${dayMap[dayName]}-${dayNum.padStart(2, '0')}`;
                                 if (el.textContent !== newText) {
                                     el.textContent = newText;
-                                    txt = newText; // Update local txt for holiday check below
+                                    txt = newText;
                                 }
                             }
                         }
                     }
 
-                    // --- Font Size Reset/Set ---
-                    if (isCompact) {
-                        el.style.fontSize = '9px';
-                    } else {
-                        // CRITICAL: Explicitly clear/reset font size when NOT compact to fix regression
-                        el.style.fontSize = '';
-                    }
+                    // Reset Size
+                    if (isCompact) el.style.fontSize = '9px';
+                    else el.style.fontSize = '';
 
-                    // --- Holiday/Weekend Highlight Logic ---
+                    // Skip Headers
                     if (Object.keys(monthMap).some(m => txt.toLowerCase().includes(m)) && txt.length > 8) return;
 
-                    // Check for weekend (adapted for both full text and substituted S-XX text)
-                    const isWeekendText =
-                        txt.includes('Sáb') || txt.includes('Dom') || txt.includes('Sab') || // Normal
-                        (isLandscapeMode && (txt.startsWith('S-') || txt.startsWith('D-'))); // New Format warning: S- could be Seg or Sab/Sex. 
-
-                    // Note: 'S-' is ambiguous (Seg, Sex, Sab). 'D-' is Dom.
-                    // To be precise with S-, we need to calculate exact date.
-
+                    // Determine Day
                     const dayMatch = txt.match(/(\d+)/);
-                    let isHolidayDay = false;
-                    let isWeekendCalculated = false;
-
                     if (dayMatch) {
                         const day = parseInt(dayMatch[0]);
+
+                        // Rollover
+                        if (lastDay > 20 && day < 10) {
+                            currentMonth++;
+                            if (currentMonth > 11) {
+                                currentMonth = 0;
+                                currentYear++;
+                            }
+                        }
+                        lastDay = day;
+
                         if (day >= 1 && day <= 31) {
                             const testDate = new Date(currentYear, currentMonth, day);
-                            if (checkIsHoliday(testDate)) isHolidayDay = true;
 
-                            const dow = testDate.getDay();
-                            if (dow === 0 || dow === 6) isWeekendCalculated = true;
+                            let type: 'today' | 'holiday' | 'weekend' | null = null;
+                            let isTarget = false;
+
+                            if (testDate.getDate() === today.getDate() &&
+                                testDate.getMonth() === today.getMonth() &&
+                                testDate.getFullYear() === today.getFullYear()) {
+                                type = 'today';
+                                el.style.fill = '#2563eb';
+                                el.style.fontWeight = 'bold';
+                                isTarget = true;
+                            } else if (checkIsHoliday(testDate)) {
+                                type = 'holiday';
+                                el.style.fill = '#dc2626';
+                                el.style.fontWeight = 'bold';
+                                isTarget = true;
+                            } else if (testDate.getDay() === 0 || testDate.getDay() === 6) {
+                                type = 'weekend';
+                                el.style.fill = '#d97706';
+                                el.style.fontWeight = 'bold';
+                                isTarget = true;
+                            } else {
+                                // Reset
+                                el.style.fill = '';
+                                el.style.fontWeight = '';
+                            }
+
+                            if (type && isTarget) {
+                                highlights.push({ x: textX, type: type as any, sourceSvg: svg });
+                                processedXs.add(textX);
+                            }
                         }
-                    }
-
-                    if (isWeekendText || isHolidayDay || isWeekendCalculated) {
-                        const targetColor = isHolidayDay ? '#dc2626' : '#d97706';
-                        el.style.fill = targetColor;
-                        el.style.fontWeight = 'bold';
-
-                        // Line highlight logic
-                        const textX = parseFloat(el.getAttribute('x') || '0');
-                        if (textX > 0) {
-                            const lines = Array.from(svg.querySelectorAll('line'));
-                            lines.forEach(line => {
-                                const x1 = parseFloat(line.getAttribute('x1') || '0');
-                                const y2 = parseFloat(line.getAttribute('y2') || '0');
-                                if (Math.abs(x1 - textX) < (isCompact ? 20 : 33) && y2 > 50) {
-                                    if (line.style.opacity !== '0.5') {
-                                        line.style.stroke = isHolidayDay ? '#fee2e2' : '#fef3c7';
-                                        line.style.strokeWidth = strokeWidth;
-                                        line.style.opacity = '0.5';
-                                    }
-                                }
-                            });
-                        }
-                    } else {
-                        // Reset colors for non-holiday days (in case date changed but element reused)
-                        el.style.fill = '';
-                        el.style.fontWeight = '';
                     }
                 });
-
-
-                // --- 2. Delayed Task Icons Logic - REMOVED for better native styling approach ---
             });
 
-            // Resume observer
+            // Phase 2: Render Highlights (All SVGs)
+            svgs.forEach(svg => {
+                // Clear Old Groups
+                const oldBg = svg.querySelector('#custom-backgrounds');
+                if (oldBg) oldBg.remove();
+
+                // Clear Old Ruler (if any)
+                const oldRuler = svg.querySelector('#custom-ruler');
+                if (oldRuler) oldRuler.remove();
+
+                if (highlights.length === 0) return;
+
+                // Create Groups
+                const bgGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
+                bgGroup.id = 'custom-backgrounds';
+
+                const rulerGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
+                rulerGroup.id = 'custom-ruler';
+
+                // Insert Layers:
+                // 1. Backgrounds go to Bottom
+                if (svg.firstChild) svg.insertBefore(bgGroup, svg.firstChild);
+                else svg.appendChild(bgGroup);
+
+                // 2. Rulers go to Top (Append to end of SVG to overlay grid lines)
+                svg.appendChild(rulerGroup);
+
+                highlights.forEach(h => {
+                    // Rect (Background)
+                    const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+                    rect.setAttribute('x', Math.max(0, h.x - (columnWidth / 2)).toString());
+                    rect.setAttribute('y', '0');
+                    rect.setAttribute('width', columnWidth.toString());
+                    rect.setAttribute('height', '100%');
+
+                    if (h.type === 'today') {
+                        rect.setAttribute('fill', '#eff6ff');
+                        rect.setAttribute('fill-opacity', '0.5'); // Subtle blue
+                        bgGroup.appendChild(rect);
+
+                        const headerIndex = svgs.indexOf(h.sourceSvg);
+                        const currentIndex = svgs.indexOf(svg);
+
+                        // Line (Ruler) - Only in Body (Index > Header)
+                        if (currentIndex > headerIndex) {
+                            const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                            line.setAttribute('x1', h.x.toString());
+                            line.setAttribute('x2', h.x.toString());
+                            line.setAttribute('y1', '0');
+                            line.setAttribute('y2', '100%');
+                            line.setAttribute('stroke', '#ef4444');
+                            line.setAttribute('stroke-width', '1');
+                            rulerGroup.appendChild(line);
+                        }
+
+                        // Label "Hoje" (First Body Row - Just below Header)
+                        if (currentIndex === headerIndex + 1) {
+                            // Background for Text
+                            const textBg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+                            textBg.setAttribute('x', (h.x - 15).toString());
+                            textBg.setAttribute('y', '2');
+                            textBg.setAttribute('width', '30');
+                            textBg.setAttribute('height', '14');
+                            textBg.setAttribute('fill', 'white');
+                            textBg.setAttribute('rx', '4');
+                            rulerGroup.appendChild(textBg);
+
+                            const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                            text.textContent = "Hoje";
+                            text.setAttribute('x', h.x.toString());
+                            text.setAttribute('y', '12');
+                            text.setAttribute('text-anchor', 'middle');
+                            text.setAttribute('fill', '#ef4444');
+                            text.setAttribute('font-size', '10px');
+                            text.setAttribute('font-weight', 'bold');
+                            rulerGroup.appendChild(text);
+                        }
+
+                    } else {
+                        // Holiday/Weekend
+                        rect.setAttribute('fill', h.type === 'holiday' ? '#fef2f2' : '#f3f4f6');
+                        bgGroup.appendChild(rect);
+                    }
+                });
+            });
+
             if (observer) {
                 observer.observe(container, { childList: true, subtree: true, attributes: true });
             }
@@ -394,7 +492,6 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
 
         // Initialize MutationObserver
         observer = new MutationObserver((mutations) => {
-            // Apply styles on ANY relevant change, but the disconnect logic inside applyStyles prevents recursion.
             const relevantMutation = mutations.some(m =>
                 m.type === 'childList' ||
                 (m.type === 'attributes' && m.attributeName !== 'style' && m.attributeName !== 'class')
@@ -404,22 +501,22 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
 
         // Run immediately and on mutation
         const timer = setTimeout(applyStyles, 50);
-
-        // Start Observing
         observer.observe(container, { childList: true, subtree: true, attributes: true });
 
         return () => {
             clearTimeout(timer);
             observer.disconnect();
         };
-    }, [tasks, selectedTaskId, isCompact, isLandscapeMode, view]); // Re-run when mode changes
+    }, [tasks, selectedTaskId, isCompact, isLandscapeMode, view]);
 
+    // --- Helper for Gantt Data ---
     // --- Helper for Gantt Data ---
     const ganttTasks: GanttLibTask[] = useMemo(() => {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
 
-        return tasks.map((t) => {
+        // 1. First Map to GanttLibTask format
+        const mappedTasks = tasks.map((t) => {
             const duration = (new Date(t.end).getTime() - new Date(t.start).getTime()) / (1000 * 60 * 60 * 24);
             let displayType: 'task' | 'milestone' | 'project' = t.type;
             if (t.type !== 'project') {
@@ -435,7 +532,7 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
             let styles = t.styles;
             if (!styles) {
                 if (isDelayed) {
-                    styles = { progressColor: '#dc2626', backgroundColor: '#fca5a5' }; // Red-600 progress, Red-300 bg
+                    styles = { progressColor: '#dc2626', backgroundColor: '#fca5a5' };
                 } else {
                     styles = {
                         progressColor: displayType === 'project' ? '#f59e0b' : '#3b82f6',
@@ -443,8 +540,6 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                     };
                 }
             } else if (isDelayed) {
-                // Force red warning even if custom styles exist (unless we want to be subtle, but user asked for evidence)
-                // Let's assume if it is delayed, we want to warn.
                 styles = { ...styles, progressColor: '#dc2626', backgroundColor: '#fca5a5' };
             }
 
@@ -459,10 +554,37 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                 styles: styles,
                 project: t.parent || undefined,
                 dependencies: t.dependencies?.filter(depId => tasks.some(task => task.id === depId)),
-                hideChildren: false
+                hideChildren: collapsedTaskIds.includes(t.id)
             };
         });
-    }, [tasks]);
+
+        // 2. Build Parent Map for fast lookup
+        const parentMap = new Map<string, string | null>();
+        tasks.forEach(t => {
+            if (t.parent) parentMap.set(t.id, t.parent);
+        });
+
+        // 3. Filter Hidden Tasks (Recursive Check)
+        const visibleTasks = mappedTasks.filter(t => {
+            let currentId = t.id;
+            // Trace up the hierarchy
+            let depth = 0;
+            while (depth < 20) { // Safety break
+                const parentId = parentMap.get(currentId);
+                if (!parentId) break; // Reached root
+
+                // If any ancestor is collapsed, hide this task
+                if (collapsedTaskIds.includes(parentId)) {
+                    return false;
+                }
+                currentId = parentId;
+                depth++;
+            }
+            return true;
+        });
+
+        return visibleTasks;
+    }, [tasks, collapsedTaskIds]);
 
     const handleDateChange = (task: GanttLibTask) => {
         if (task.type === 'project') return;
@@ -592,7 +714,7 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
 
 
                     <button onClick={() => onAddTask(selectedTaskId || undefined)} className={`flex items-center gap-2 bg-indigo-600 text-white px-3 py-1.5 rounded-md text-sm hover:bg-indigo-700 transition ml-2 whitespace-nowrap ${isCompact ? 'text-xs px-2 py-1' : ''}`}>
-                        <Plus size={isCompact ? 14 : 16} />
+                        <span className="text-lg font-bold leading-none" style={{ marginTop: '-2px' }}>+</span>
                         <span className="hidden sm:inline">Nova Tarefa</span>
                     </button>
                 </div>
@@ -633,6 +755,8 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                                             onOutdent={onOutdent}
                                             onDeleteTask={onDeleteTask}
                                             isCompact={isCompact}
+                                            onToggleCollapse={toggleTaskCollapse}
+                                            isCollapsed={collapsedTaskIds.includes(t.id)}
                                         />
                                     );
                                 })}
@@ -694,6 +818,8 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                                                     onOutdent={onOutdent}
                                                     onDeleteTask={onDeleteTask}
                                                     isCompact={isCompact}
+                                                    onToggleCollapse={toggleTaskCollapse}
+                                                    isCollapsed={collapsedTaskIds.includes(t.id)}
                                                 />
                                             );
                                         })}
