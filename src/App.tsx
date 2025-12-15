@@ -208,11 +208,37 @@ function App() {
     const [clientTasks, setClientTasks] = useState<Task[]>([]);
 
     useEffect(() => {
-        const handleOnline = () => setIsOnline(true);
+        const checkOnlineStatus = async () => {
+            if (!navigator.onLine) {
+                setIsOnline(false);
+                return;
+            }
+            try {
+                // Robust check: Ping external resource to confirm internet access.
+                // 'no-cors' allows request to opaque resources (we just care if it doesn't fail network-wise).
+                await fetch('https://www.google.com/favicon.ico?' + Date.now(), {
+                    mode: 'no-cors',
+                    cache: 'no-store'
+                });
+                setIsOnline(true);
+            } catch (error) {
+                // If fetch fails (network error), assume offline
+                setIsOnline(false);
+            }
+        };
+
+        // Check immediately and then interval
+        checkOnlineStatus();
+        const interval = setInterval(checkOnlineStatus, 5000); // Check every 5s for responsiveness
+
+        const handleOnline = () => checkOnlineStatus();
         const handleOffline = () => setIsOnline(false);
+
         window.addEventListener('online', handleOnline);
         window.addEventListener('offline', handleOffline);
+
         return () => {
+            clearInterval(interval);
             window.removeEventListener('online', handleOnline);
             window.removeEventListener('offline', handleOffline);
         };
@@ -399,7 +425,7 @@ function App() {
         }
     };
 
-    const [currentFiscalYear, setCurrentFiscalYear] = useState('2024');
+    const [currentFiscalYear, setCurrentFiscalYear] = useState(new Date().getFullYear().toString());
     const [clients, setClients] = useState<any[]>([]); // Start empty as requested
     const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
 
@@ -463,9 +489,18 @@ function App() {
     const handleUpdateClient = async (updatedClient: any) => {
         try {
             const { id, ...data } = updatedClient;
+
+            // Sanitize data: remove undefined fields to avoid Firestore errors
+            Object.keys(data).forEach(key => data[key] === undefined && delete data[key]);
+
+            if (!id) {
+                alert("Erro: ID do cliente não encontrado.");
+                return;
+            }
             await ProjectService.updateClient(id, data);
-        } catch (error) {
+        } catch (error: any) {
             console.error("Error updating client:", error);
+            alert("Erro ao salvar: " + (error.message || "Erro desconhecido"));
         }
     };
 
@@ -548,13 +583,26 @@ function App() {
     }, [projectTasks, resources]);
 
     // Filter projects for the selected client (Strategic)
+    // Filter projects for the selected client (Strategic)
     const clientProjects = selectedClientId
-        ? projects.filter(p => p.clientId === selectedClientId)
+        ? projects.filter(p => {
+            if (p.clientId !== selectedClientId) return false;
+            // Strict Hierarchy: Project Year must match Selected Fiscal Year
+            const pYear = new Date(p.startDate).getFullYear().toString();
+            return pYear === currentFiscalYear;
+        })
         : [];
 
     // When creating a project in "My Projects" of a client, attach that client ID
     const handleCreateProjectWrapper = (data: any) => {
-        handleCreateProject({ ...data, clientId: selectedClientId });
+        // Ensure the project is created in the currently viewed Fiscal Year
+        let startDate = new Date();
+        const selectedYear = parseInt(currentFiscalYear);
+        if (startDate.getFullYear() !== selectedYear) {
+            startDate = new Date(selectedYear, 0, 1); // Jan 1st of selected Year
+        }
+
+        handleCreateProject({ ...data, clientId: selectedClientId, startDate });
     };
 
     const handleIndentTask = (task: Task) => {
@@ -601,6 +649,12 @@ function App() {
             />
 
             <div className="flex-1 flex flex-col min-w-0">
+                {!isOnline && (
+                    <div className="bg-red-600 text-white px-4 py-3 text-center text-sm font-bold flex justify-center items-center gap-2 shadow-md animate-in slide-in-from-top-2 z-50 transition-all">
+                        <CloudOff size={20} />
+                        <span>MODO OFFLINE: Você está trabalhando sem internet. Suas alterações foram salvas localmente e serão enviadas ao servidor automaticamente assim que a conexão retornar.</span>
+                    </div>
+                )}
                 {/* Header */}
                 <header className="bg-white border-b border-gray-200 h-16 px-8 flex items-center justify-between z-10">
                     <div className="flex items-center gap-4">
@@ -671,6 +725,9 @@ function App() {
                             onDeleteClient={handleDeleteClient}
                             currentFiscalYear={currentFiscalYear}
                             onFiscalYearChange={setCurrentFiscalYear}
+                            onSelectClient={(clientId) => {
+                                setCurrentView(`client_${clientId}_reports`);
+                            }}
                         />
                     )}
 
@@ -731,7 +788,13 @@ function App() {
 
                     {/* REPORTS / ESTRATÉGICO VIEW */}
                     {parsedViewType === 'reports' && (
-                        <ReportsView tasks={clientTasks} resources={resources} projects={clientProjects} />
+                        <ReportsView
+                            tasks={clientTasks}
+                            resources={resources}
+                            projects={clientProjects}
+                            client={clients.find(c => c.id === selectedClientId)}
+                            fiscalYear={currentFiscalYear}
+                        />
                     )}
 
                     {/* MY PROJECTS VIEW */}
@@ -743,7 +806,7 @@ function App() {
                             onDeleteProject={handleProjectDelete}
                             onSelectProject={(id) => {
                                 setSelectedProjectId(id);
-                                setCurrentView(`client_${selectedClientId}_gantt`);
+                                setCurrentView(`project_${id}_gantt`);
                             }}
                         />
                     )}

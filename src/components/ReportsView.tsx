@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Task, Resource, Project } from '../types';
+import { Task, Resource, Project, Client } from '../types';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { Printer, Wallet, TrendingUp, Target, CalendarDays, ArrowUpRight, Plus, X, Trash2, Pencil } from 'lucide-react';
@@ -9,9 +9,11 @@ interface ReportsViewProps {
     tasks: Task[];
     resources: Resource[];
     projects?: Project[];
+    client?: Client;
+    fiscalYear?: string;
 }
 
-export const ReportsView = ({ tasks, resources, projects = [] }: ReportsViewProps) => {
+export const ReportsView = ({ tasks, resources, projects = [], client, fiscalYear }: ReportsViewProps) => {
 
     // Portfolio Calculations (Mocked if projects are empty/old data, but using new fields)
     const totalContratado = projects.reduce((sum, p) => sum + (p.grossValue || 0), 0);
@@ -29,6 +31,10 @@ export const ReportsView = ({ tasks, resources, projects = [] }: ReportsViewProp
     const margemMedia = projects.length > 0
         ? projects.reduce((sum, p) => sum + (p.margin || 0), 0) / projects.length
         : 0;
+
+    // Get Target Margin from Client Configuration
+    const activeBudget = client?.budgets?.find(b => b.fiscalYear === fiscalYear);
+    const targetMargin = activeBudget?.margin || 0;
 
     // Roadmap Logic
     const [milestones, setMilestones] = useState([
@@ -136,7 +142,7 @@ export const ReportsView = ({ tasks, resources, projects = [] }: ReportsViewProp
                             {margemMedia.toFixed(1)}%
                         </div>
                         <div className="text-xs text-blue-600 font-medium mt-2">
-                            Meta da Diretoria: 25%
+                            Meta da Diretoria: {targetMargin}%
                         </div>
                     </div>
 

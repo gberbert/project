@@ -12,6 +12,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { Project, Task, Resource } from '../types';
+import { Client } from '../types/client';
 
 // Collection References
 const PROJECTS_COL = 'projects';
@@ -21,9 +22,16 @@ const CLIENTS_COL = 'clients';
 
 export const ProjectService = {
     // --- Clients ---
-    subscribeClients: (callback: (clients: any[]) => void) => {
+    subscribeClients: (callback: (clients: Client[]) => void) => {
         return onSnapshot(collection(db, CLIENTS_COL), (snapshot) => {
-            const clients = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            const clients = snapshot.docs.map(doc => {
+                const data = doc.data();
+                return {
+                    ...data,
+                    id: doc.id,
+                    createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : (data.createdAt ? new Date(data.createdAt) : undefined)
+                } as Client;
+            });
             callback(clients);
         });
     },
@@ -44,7 +52,15 @@ export const ProjectService = {
     // --- Projects ---
     subscribeProjects: (callback: (projects: Project[]) => void) => {
         return onSnapshot(collection(db, PROJECTS_COL), (snapshot) => {
-            const projects = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Project));
+            const projects = snapshot.docs.map(doc => {
+                const data = doc.data();
+                return {
+                    ...data,
+                    id: doc.id,
+                    startDate: data.startDate?.toDate ? data.startDate.toDate() : (data.startDate ? new Date(data.startDate) : new Date()),
+                    createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : (data.createdAt ? new Date(data.createdAt) : new Date())
+                } as Project;
+            });
             callback(projects);
         });
     },

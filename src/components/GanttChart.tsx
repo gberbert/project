@@ -201,6 +201,7 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
     const [isCompact, setIsCompact] = useState(false);
     const [view, setView] = useState<ViewMode>(ViewMode.Day);
     const [collapsedTaskIds, setCollapsedTaskIds] = useState<string[]>([]);
+    const initialScrollDone = React.useRef(false);
 
     const toggleTaskCollapse = (taskId: string) => {
         setCollapsedTaskIds(prev => prev.includes(taskId)
@@ -240,8 +241,9 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
         return () => window.removeEventListener('resize', handleResize);
     }, [isLandscapeMode]);
 
-    // --- DOM Manipulation Logic (Holiday Styling + Date Text Replacement + Delayed Task Icons) ---
+    // --- DOM Manipulation Logic (Holiday Styling + Date Text Replacement + Delayed Task Icons + Auto Scroll) ---
     useEffect(() => {
+        initialScrollDone.current = false;
         const container = containerRef.current;
         if (!container) return;
 
@@ -251,6 +253,15 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
             if (observer) observer.disconnect();
 
             const svgs = Array.from(container.querySelectorAll('svg'));
+            let todayScrollTarget: { x: number, element: Element } | null = null;
+
+            // Determine View Start (Earliest of Tasks or Today)
+            let viewStart = new Date();
+            viewStart.setHours(0, 0, 0, 0);
+            if (tasks.length > 0) {
+                const minTask = tasks.reduce((min, t) => new Date(t.start) < min ? new Date(t.start) : min, new Date(8640000000000000));
+                if (minTask < viewStart) viewStart = minTask;
+            }
 
             // Constants
             const monthMap: Record<string, number> = {
@@ -272,12 +283,16 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
             const highlights: Highlight[] = [];
             const processedXs = new Set<number>();
 
+            // Anchor for Fallback Scroll
+            let anchorDate: Date | null = null;
+            let anchorX = 0;
+
             svgs.forEach(svg => {
                 const textElements = Array.from(svg.querySelectorAll('text'));
 
-                // Initial Month/Year for this SVG
-                let currentMonth = new Date().getMonth();
-                let currentYear = new Date().getFullYear();
+                // Initial Month/Year for this SVG (Defaults to View Start)
+                let currentMonth = viewStart.getMonth();
+                let currentYear = viewStart.getFullYear();
 
                 const monthText = textElements.find(el => {
                     const txt = el.textContent?.toLowerCase() || '';
@@ -305,6 +320,26 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                     if (processedXs.has(textX)) return;
 
                     // Date Text Logic (Keep styling for Text itself here)
+
+                    // --- Abbreviate Month Names in Annual View ---
+                    if (view === ViewMode.Month) {
+                        const lowerTxt = txt.toLowerCase();
+                        const monthReplacements: Record<string, string> = {
+                            'janeiro': 'Jan', 'fevereiro': 'Fev', 'março': 'Mar', 'abril': 'Abr', 'maio': 'Mai', 'junho': 'Jun',
+                            'julho': 'Jul', 'agosto': 'Ago', 'setembro': 'Set', 'outubro': 'Out', 'novembro': 'Nov', 'dezembro': 'Dez'
+                        };
+
+                        for (const [full, abbr] of Object.entries(monthReplacements)) {
+                            if (lowerTxt.includes(full)) {
+                                const newText = txt.replace(new RegExp(full, 'i'), abbr);
+                                if (el.textContent !== newText) {
+                                    el.textContent = newText;
+                                    txt = newText;
+                                }
+                            }
+                        }
+                    }
+
                     // --- Text Replacement: W -> S ---
                     const wMatch = txt.match(/^[WS](\d+)$/);
                     if (wMatch && view === ViewMode.Week) {
@@ -364,6 +399,11 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                         if (day >= 1 && day <= 31) {
                             const testDate = new Date(currentYear, currentMonth, day);
 
+                            if (!anchorDate) {
+                                anchorDate = testDate;
+                                anchorX = textX;
+                            }
+
                             let type: 'today' | 'holiday' | 'weekend' | null = null;
                             let isTarget = false;
 
@@ -393,6 +433,10 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                             if (type && isTarget) {
                                 highlights.push({ x: textX, type: type as any, sourceSvg: svg });
                                 processedXs.add(textX);
+
+                                if (type === 'today' && !todayScrollTarget) {
+                                    todayScrollTarget = { x: textX, element: svg };
+                                }
                             }
                         }
                     }
@@ -485,6 +529,53 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                 });
             });
 
+            // Auto-Scroll Logic
+            if (!initialScrollDone.current) {
+                // Find robust scroll container (usually the one with overflow)
+                let scrollContainer: Element | null = null;
+                for (const svg of svgs) {
+                    const p = svg.parentElement;
+                    if (p && (p.scrollWidth > p.clientWidth || getComputedStyle(p).overflowX === 'auto' || getComputedStyle(p).overflowX === 'scroll')) {
+                        scrollContainer = p;
+                        break;
+                    }
+                }
+                if (!scrollContainer && svgs.length > 0) scrollContainer = svgs[svgs.length - 1].parentElement; // Fallback to last (Body)
+
+                if (scrollContainer) {
+                    if (view === ViewMode.Week) {
+                        // Week View: Scroll to Start (First Task)
+                        scrollContainer.scrollTo({ left: 0, behavior: 'smooth' });
+                        initialScrollDone.current = true;
+                    } else if (todayScrollTarget) {
+                        // Day/Month View: Center Today (Detected)
+                        const center = todayScrollTarget.x - (scrollContainer.clientWidth / 2);
+                        if (Math.abs(scrollContainer.scrollLeft - center) > 10) {
+                            scrollContainer.scrollTo({ left: Math.max(0, center), behavior: 'smooth' });
+                        }
+                        initialScrollDone.current = true;
+                    } else if (anchorDate && view !== ViewMode.Week) {
+                        // Fallback Calculation
+                        let offset = 0;
+                        if (view === ViewMode.Month) {
+                            const months = (today.getFullYear() - anchorDate.getFullYear()) * 12 + (today.getMonth() - anchorDate.getMonth());
+                            offset = months * columnWidth;
+                        } else {
+                            // Day
+                            const days = Math.floor((today.getTime() - anchorDate.getTime()) / (1000 * 60 * 60 * 24));
+                            offset = days * columnWidth;
+                        }
+
+                        const targetX = anchorX + offset;
+                        const center = targetX - (scrollContainer.clientWidth / 2);
+                        if (Math.abs(scrollContainer.scrollLeft - center) > 10) {
+                            scrollContainer.scrollTo({ left: Math.max(0, center), behavior: 'smooth' });
+                        }
+                        initialScrollDone.current = true;
+                    }
+                }
+            }
+
             if (observer) {
                 observer.observe(container, { childList: true, subtree: true, attributes: true });
             }
@@ -500,7 +591,7 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
         });
 
         // Run immediately and on mutation
-        const timer = setTimeout(applyStyles, 50);
+        const timer = setTimeout(applyStyles, 200);
         observer.observe(container, { childList: true, subtree: true, attributes: true });
 
         return () => {
@@ -583,8 +674,29 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
             return true;
         });
 
+        // 4. Add Spacer for View Range
+        const spacerStart = new Date();
+        const spacerEnd = new Date(spacerStart);
+        if (view === ViewMode.Month) spacerEnd.setFullYear(spacerStart.getFullYear() + 1);
+        else if (view === ViewMode.Week) spacerEnd.setMonth(spacerStart.getMonth() + 3);
+        else spacerEnd.setMonth(spacerStart.getMonth() + 1);
+
+        visibleTasks.push({
+            id: 'gantt-spacer',
+            type: 'task',
+            name: '',
+            start: spacerStart,
+            end: spacerEnd,
+            progress: 0,
+            styles: { backgroundColor: 'transparent', progressColor: 'transparent', backgroundSelectedColor: 'transparent' },
+            isDisabled: true,
+            dependencies: [],
+            hideChildren: true,
+            project: undefined
+        });
+
         return visibleTasks;
-    }, [tasks, collapsedTaskIds]);
+    }, [tasks, collapsedTaskIds, view]);
 
     const handleDateChange = (task: GanttLibTask) => {
         if (task.type === 'project') return;
@@ -612,7 +724,7 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
 
     // --- View Configuration ---
     const rowHeight = isCompact ? 30 : 40;
-    const columnWidth = view === ViewMode.Month ? 300 : (view === ViewMode.Week ? (isCompact ? 80 : 130) : (isCompact ? 40 : 65));
+    const columnWidth = isCompact ? 40 : 65;
     const listCellWidth = isCompact ? "180px" : "280px";
 
     // Landscape specific CSS to ensure scroll works and fonts are small
@@ -739,7 +851,7 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                         ganttHeight={window.innerWidth - (isCompact ? 56 : 65)}
                         TaskListTable={(props) => (
                             <div className="font-sans text-sm border-r border-gray-200 bg-white">
-                                {props.tasks.map(t => {
+                                {props.tasks.filter(t => t.id !== 'gantt-spacer').map(t => {
                                     const original = tasks.find(orig => orig.id === t.id);
                                     return (
                                         <SortableTaskRow
@@ -799,10 +911,10 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                             TaskListTable={(props) => (
                                 <div className="font-sans text-sm border-r border-gray-200 bg-white">
                                     <SortableContext
-                                        items={props.tasks.map(t => t.id)}
+                                        items={props.tasks.filter(t => t.id !== 'gantt-spacer').map(t => t.id)}
                                         strategy={verticalListSortingStrategy}
                                     >
-                                        {props.tasks.map(t => {
+                                        {props.tasks.filter(t => t.id !== 'gantt-spacer').map(t => {
                                             const original = tasks.find(orig => orig.id === t.id);
                                             return (
                                                 <SortableTaskRow

@@ -55,3 +55,5 @@ export interface Project {
 export interface TaskWithCost extends Task {
     cost: number;
 }
+
+export * from './client';
