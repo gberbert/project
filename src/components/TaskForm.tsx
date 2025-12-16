@@ -1,5 +1,5 @@
 import { Task, Resource } from '../types';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { X, Plus, Link2, ArrowRightCircle, ArrowLeftCircle, Calendar as CalendarIcon, ChevronLeft, ChevronRight } from 'lucide-react';
 import {
     format, startOfMonth, endOfMonth, eachDayOfInterval,
@@ -7,6 +7,7 @@ import {
     isSameMonth, isSameDay, isWithinInterval, isBefore, isAfter, isWeekend, addDays
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { SearchableSelect } from './SearchableSelect';
 
 interface TaskFormProps {
     task?: Task;
@@ -176,6 +177,49 @@ export const TaskForm = ({ task, allTasks, resources, onSave, onCancel }: TaskFo
         return count;
     };
 
+    const effortMetrics = useMemo(() => {
+        // Returns { hours, cost }
+        const recurseCalc = (tasks: Task[]): { hours: number, cost: number } => {
+            let totalHours = 0;
+            let totalCost = 0;
+
+            for (const t of tasks) {
+                if (t.type === 'project') {
+                    const children = allTasks.filter(c => c.parent === t.id);
+                    const sub = recurseCalc(children);
+                    totalHours += sub.hours;
+                    totalCost += sub.cost;
+                } else {
+                    const h = countBusinessDays(t.start, t.end) * 8;
+                    const r = t.hourlyRate || 0;
+                    totalHours += h;
+                    totalCost += h * r;
+                }
+            }
+            return { hours: totalHours, cost: totalCost };
+        };
+
+        let data = { hours: 0, cost: 0 };
+
+        if (formData.type === 'project') {
+            if (formData.id) {
+                const directChildren = allTasks.filter(t => t.parent === formData.id);
+                data = recurseCalc(directChildren);
+            }
+        } else {
+            const h = countBusinessDays(formData.start, formData.end) * 8;
+            const r = formData.hourlyRate || 0;
+            data = { hours: h, cost: h * r };
+        }
+
+        return {
+            hours: data.hours,
+            ftes: data.hours / 168,
+            avgRate: data.hours > 0 ? (data.cost / data.hours) : 0,
+            totalCost: data.cost
+        };
+    }, [formData, allTasks]);
+
     const handleSubmit = (e?: React.FormEvent | React.MouseEvent) => {
         if (e) e.preventDefault();
 
@@ -246,6 +290,8 @@ export const TaskForm = ({ task, allTasks, resources, onSave, onCancel }: TaskFo
                                             : 'Selecione'}
                                     </div>
                                 </div>
+
+
 
                                 {isCalendarOpen && (
                                     <div className="absolute top-full left-0 z-50 mt-1 bg-white rounded-lg shadow-xl border border-gray-200 p-4 w-[320px] animate-in fade-in zoom-in-95 duration-150">
@@ -358,6 +404,28 @@ export const TaskForm = ({ task, allTasks, resources, onSave, onCancel }: TaskFo
                                 )}
                             </div>
                         </div>
+
+                        {/* Effort Metrics Display (Moved Here - Full Width) */}
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-1">
+                            <div className="bg-blue-50 p-3 rounded-lg border border-blue-100 flex flex-col justify-center items-center shadow-sm">
+                                <span className="text-[10px] text-blue-600 font-bold uppercase tracking-wider">Horas Úteis</span>
+                                <span className="text-xl font-bold text-blue-800">{effortMetrics.hours}h</span>
+                            </div>
+                            <div className="bg-purple-50 p-3 rounded-lg border border-purple-100 flex flex-col justify-center items-center shadow-sm">
+                                <span className="text-[10px] text-purple-600 font-bold uppercase tracking-wider">FTEs / Mês</span>
+                                <span className="text-xl font-bold text-purple-800">{effortMetrics.ftes.toFixed(2)}</span>
+                            </div>
+                            <div className="bg-emerald-50 p-3 rounded-lg border border-emerald-100 flex flex-col justify-center items-center shadow-sm">
+                                <span className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider">Valor / h Médio</span>
+                                <span className="text-xl font-bold text-emerald-800">R$ {effortMetrics.avgRate.toFixed(0)}</span>
+                            </div>
+                            <div className="bg-amber-50 p-3 rounded-lg border border-amber-100 flex flex-col justify-center items-center shadow-sm">
+                                <span className="text-[10px] text-amber-600 font-bold uppercase tracking-wider">Custo Estimado</span>
+                                <span className="text-xl font-bold text-amber-800">
+                                    {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', notation: 'compact' }).format(effortMetrics.totalCost)}
+                                </span>
+                            </div>
+                        </div>
                     </div>
 
                     {/* Resources & Progress */}
@@ -463,18 +531,69 @@ export const TaskForm = ({ task, allTasks, resources, onSave, onCancel }: TaskFo
                                 </select>
                                 <p className="text-xs text-gray-400 mt-1">Defina a qual tarefa esta sub-tarefa pertence.</p>
                             </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Recurso Atribuído</label>
-                                <select
-                                    value={formData.resourceId || ''}
-                                    onChange={(e) => setFormData(prev => ({ ...prev, resourceId: e.target.value }))}
-                                    className="w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 border p-2.5"
-                                >
-                                    <option value="">-- Não Atribuído --</option>
-                                    {resources.map(r => (
-                                        <option key={r.id} value={r.id}>{r.name} ({r.role})</option>
-                                    ))}
-                                </select>
+                            <div className="md:col-span-2 space-y-3">
+                                <label className="block text-sm font-medium text-gray-700">Atribuição de Recurso & Custos</label>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                    {/* 1. Select from Team */}
+                                    <div>
+                                        <label className="block text-xs text-gray-500 mb-1">Selecionar da Equipe</label>
+                                        <SearchableSelect
+                                            value={formData.resourceId || ''}
+                                            onChange={(val) => {
+                                                const resId = val;
+                                                if (!resId) {
+                                                    setFormData(prev => ({ ...prev, resourceId: undefined }));
+                                                    return;
+                                                }
+                                                const res = resources.find(r => r.id === resId);
+                                                if (res) {
+                                                    setFormData(prev => ({
+                                                        ...prev,
+                                                        resourceId: res.id,
+                                                        assignedResource: res.name, // Auto-fill name
+                                                        hourlyRate: res.hourlyRate // Auto-fill rate
+                                                    }));
+                                                }
+                                            }}
+                                            options={resources.map(r => ({ value: r.id, label: r.name, subLabel: r.role }))}
+                                            placeholder="-- Personalizado / Manual --"
+                                        />
+                                    </div>
+
+                                    {/* 2. Manual Name (Text) */}
+                                    <div>
+                                        <label className="block text-xs text-gray-500 mb-1">Nome do Recurso (Label)</label>
+                                        <input
+                                            type="text"
+                                            value={formData.assignedResource || ''}
+                                            onChange={(e) => {
+                                                setFormData(prev => ({
+                                                    ...prev,
+                                                    assignedResource: e.target.value,
+                                                    resourceId: undefined // Detach from Team list when editing manually
+                                                }));
+                                            }}
+                                            placeholder="Ex: Dev Senior (IA)"
+                                            className="w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 border p-2.5 text-sm"
+                                        />
+                                    </div>
+
+                                    {/* 3. Hourly Rate (Manual) */}
+                                    <div>
+                                        <label className="block text-xs text-gray-500 mb-1">Valor / Hora (R$)</label>
+                                        <div className="relative">
+                                            <span className="absolute left-3 top-2.5 text-gray-400 text-sm">R$</span>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                step="1"
+                                                value={formData.hourlyRate || ''}
+                                                onChange={(e) => setFormData(prev => ({ ...prev, hourlyRate: parseFloat(e.target.value) || 0 }))}
+                                                className="w-full pl-9 rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 border p-2.5 text-sm"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -515,16 +634,14 @@ export const TaskForm = ({ task, allTasks, resources, onSave, onCancel }: TaskFo
                                     })}
                                 </div>
                                 <div className="flex gap-2">
-                                    <select
-                                        value={newDependencyId}
-                                        onChange={(e) => setNewDependencyId(e.target.value)}
-                                        className="flex-1 text-sm rounded-md border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 border p-1.5"
-                                    >
-                                        <option value="">Selecione...</option>
-                                        {availableTasks.map(t => (
-                                            <option key={t.id} value={t.id}>{t.name}</option>
-                                        ))}
-                                    </select>
+                                    <div className="flex-1 w-0 min-w-0">
+                                        <SearchableSelect
+                                            value={newDependencyId}
+                                            onChange={(val) => setNewDependencyId(val)}
+                                            options={availableTasks.map(t => ({ value: t.id, label: t.name }))}
+                                            placeholder="Selecione uma tarefa..."
+                                        />
+                                    </div>
                                     <button
                                         type="button"
                                         onClick={handleAddDependency}

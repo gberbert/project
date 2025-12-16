@@ -27,6 +27,8 @@ export interface Task {
 
     // Legacy/UI props
     resourceId?: string;
+    assignedResource?: string; // Nome direto (ex: AI suggested role) sem criar Resource
+    hourlyRate?: number; // Valor/Hora específico da tarefa
     projectId?: string;
     isDisabled?: boolean;
     styles?: {

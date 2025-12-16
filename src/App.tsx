@@ -13,7 +13,7 @@ import { SettingsView } from './components/SettingsView';
 import { EstimateModal } from './components/EstimateModal';
 import { EstimateResult } from './services/geminiService';
 import { useProjectLogic } from './hooks/useProjectLogic';
-import { isAfter, isWeekend, addDays, differenceInDays } from 'date-fns';
+import { isAfter, isWeekend, addDays, differenceInDays, addBusinessDays } from 'date-fns';
 
 import { Task, Resource, Project } from './types';
 import { Database, CloudOff, Menu, Sparkles, CheckCircle } from 'lucide-react';
@@ -72,15 +72,19 @@ const calculateProjectStats = (tasks: Task[], resources: Resource[]) => {
         totalWeightedProgress += (task.progress || 0) * durationMs;
         totalDurationMs += durationMs;
 
-        if (task.resourceId && resources.length > 0) {
+        // Calculate Cost (Flexible: uses task.hourlyRate or falls back to resourceId)
+        let rate = task.hourlyRate || 0;
+        if (!rate && task.resourceId && resources.length > 0) {
             const res = resources.find(r => r.id === task.resourceId);
-            if (res) {
-                const days = Math.max(1, countBusinessDays(task.start, task.end));
-                totalCost += days * 8 * res.hourlyRate;
-                if (task.realStart && task.realEnd) {
-                    const rDays = Math.max(1, countBusinessDays(task.realStart, task.realEnd));
-                    totalRealCost += rDays * 8 * res.hourlyRate;
-                }
+            if (res) rate = res.hourlyRate;
+        }
+
+        if (rate > 0) {
+            const days = Math.max(1, countBusinessDays(task.start, task.end));
+            totalCost += days * 8 * rate;
+            if (task.realStart && task.realEnd) {
+                const rDays = Math.max(1, countBusinessDays(task.realStart, task.realEnd));
+                totalRealCost += rDays * 8 * rate;
             }
         }
     });
@@ -726,45 +730,16 @@ function App() {
             }
         ];
 
-        // 1. Generate ID Map & Resource Logic
-        estimate.tasks.forEach(t => { idMap[t.id] = prefix + t.id; });
-
-        for (const t of estimate.tasks) {
-            if (t.role) {
-                const normalizedRole = t.role.trim();
-                if (!roleMap[normalizedRole]) {
-                    const existingRes = resources.find(r => r.role.toLowerCase() === normalizedRole.toLowerCase() || r.name.toLowerCase() === normalizedRole.toLowerCase());
-                    if (existingRes) {
-                        roleMap[normalizedRole] = existingRes.id;
-                    } else {
-                        const newResData = {
-                            name: `AI: ${normalizedRole}`,
-                            role: normalizedRole,
-                            hourlyRate: t.hourly_rate || 100,
-                            avatarUrl: ''
-                        };
-                        let newId = `res-ai-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-                        if (isConnected) {
-                            try {
-                                const docRef = await ProjectService.addResource(newResData);
-                                newId = docRef.id;
-                            } catch (e) {
-                                console.error("Failed to auto-create resource", e);
-                            }
-                        } else {
-                            setResources(prev => [...prev, { ...newResData, id: newId }]);
-                        }
-                        roleMap[normalizedRole] = newId;
-                    }
-                }
-            }
-        }
+        // ID Mapping (AI ID -> System ID)
+        estimate.tasks.forEach(t => {
+            idMap[t.id] = prefix + t.id;
+        });
 
         // 2. Build AI Tasks (Children)
         const aiTasks: Task[] = estimate.tasks.map((t, index) => {
-            const start = addDays(projectStart, t.start_offset_days || 0);
+            const start = addBusinessDays(projectStart, t.start_offset_days || 0);
             const duration = Math.max(1, t.duration_days || 1);
-            const end = addDays(start, duration);
+            const end = addBusinessDays(start, duration);
 
             let parentId = null;
             if (t.category && phaseIds[t.category]) {
@@ -786,7 +761,8 @@ function App() {
                 progress: 0,
                 parent: parentId,
                 dependencies: t.dependencies ? t.dependencies.map(d => idMap[d] || d) : [],
-                resourceId: t.role ? roleMap[t.role.trim()] : undefined,
+                assignedResource: t.role || '',
+                hourlyRate: t.hourly_rate || 0,
                 styles: { progressColor: '#8b5cf6', backgroundColor: '#8b5cf6' },
                 order: index + 500 // Start after phases
             } as Task;

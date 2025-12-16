@@ -7,7 +7,7 @@ export interface EstimatedTask {
     name: string;
     type: 'task' | 'milestone' | 'project';
     start_offset_days: number;
-    duration_days: number;
+    duration_days: number; // Em DIAS ÚTEIS (Business Days)
     parent_id?: string | null;
     dependencies?: string[];
     role?: string; // Resource role suggestion
@@ -58,6 +58,11 @@ DIRETRIZES DE LÓGICA SDLC (CRÍTICO - MODELO CASCATA/WATERFALL RÍGIDO):
 2. **DEPENDÊNCIAS MANDATÓRIAS**:
    - A primeira tarefa de 'rollout' DEVE ter como dependência ('dependencies') a tarefa de "Aprovação de UAT/Homologação" da fase 'testing'.
    - Garanta que a fase 'testing' inclua tempo para correção de bugs (Retestes) antes de liberar para Rollout.
+
+3. **TEMPO E DIAS ÚTEIS (CRÍTICO)**:
+   - Todas as estimativas de 'duration_days' e 'start_offset_days' DEVEM ser em **DIAS ÚTEIS**.
+   - Ignore finais de semana. 5 dias = 1 semana de trabalho.
+   - Seja realista: Ninguém codifica 8h/dia sem parar. Inclua buffer.
 
 PROTOCOLO DE INTERAÇÃO (RIGOROSO):
 
