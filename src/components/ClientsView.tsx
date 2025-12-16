@@ -20,6 +20,7 @@ export const ClientsView = ({ clients, onCreateClient, onUpdateClient, onDeleteC
     const [editingClient, setEditingClient] = useState<Client | null>(null);
     const [name, setName] = useState('');
     const [strategy, setStrategy] = useState('');
+    const [context, setContext] = useState('');
     const [budgetRevenue, setBudgetRevenue] = useState('');
     const [budgetMargin, setBudgetMargin] = useState('');
 
@@ -35,12 +36,14 @@ export const ClientsView = ({ clients, onCreateClient, onUpdateClient, onDeleteC
             // Robust finding: force strings
             const budget = budgets.find(b => String(b.fiscalYear) === String(currentFiscalYear));
             setStrategy(budget?.strategy || '');
+            setContext(client.context || '');
             setBudgetRevenue(budget?.revenue?.toString() || '');
             setBudgetMargin(budget?.margin?.toString() || '');
         } else {
             setEditingClient(null);
             setName('');
             setStrategy('');
+            setContext('');
             setBudgetRevenue('');
             setBudgetMargin('');
         }
@@ -74,6 +77,7 @@ export const ClientsView = ({ clients, onCreateClient, onUpdateClient, onDeleteC
             onUpdateClient({
                 ...editingClient,
                 name,
+                context,
                 budgets: updatedBudgets
             });
         } else {
@@ -82,6 +86,7 @@ export const ClientsView = ({ clients, onCreateClient, onUpdateClient, onDeleteC
                 id: `client-${Date.now()}`,
                 name,
                 strategy, // Set initial global strategy as fallback for legacy
+                context,
                 budgets: [budget],
                 createdAt: new Date()
             });
@@ -246,6 +251,15 @@ export const ClientsView = ({ clients, onCreateClient, onUpdateClient, onDeleteC
                                     onChange={e => setName(e.target.value)}
                                     className="w-full px-4 py-3 rounded-lg bg-gray-50 border border-gray-200 focus:ring-2 focus:ring-indigo-500"
                                     placeholder="Ex: ACME Corp"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Contexto AI</label>
+                                <textarea
+                                    value={context}
+                                    onChange={e => setContext(e.target.value)}
+                                    className="w-full px-4 py-3 rounded-lg bg-gray-50 border border-gray-200 focus:ring-2 focus:ring-indigo-500 h-24 resize-none"
+                                    placeholder="Descreva a cultura da empresa, padrões de arquitetura (ex: microsserviços), tecnologias preferidas e restrições..."
                                 />
                             </div>
                             <div>

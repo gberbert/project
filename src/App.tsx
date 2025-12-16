@@ -9,11 +9,14 @@ import { TaskListView } from './components/TaskListView';
 import { ReportsView } from './components/ReportsView';
 import { MyProjectsView } from './components/MyProjectsView';
 import { ClientsView } from './components/ClientsView';
+import { SettingsView } from './components/SettingsView';
+import { EstimateModal } from './components/EstimateModal';
+import { EstimateResult } from './services/geminiService';
 import { useProjectLogic } from './hooks/useProjectLogic';
 import { isAfter, isWeekend, addDays, differenceInDays } from 'date-fns';
 
 import { Task, Resource, Project } from './types';
-import { Database, CloudOff, Menu } from 'lucide-react';
+import { Database, CloudOff, Menu, Sparkles, CheckCircle } from 'lucide-react';
 import { ProjectService } from './services/projectService';
 
 // --- Stats Helper ---
@@ -203,6 +206,7 @@ function App() {
     const [currentView, setCurrentView] = useState('gantt');
     const [ganttTab, setGanttTab] = useState<'schedule' | 'tasks'>('schedule');
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+    const [isEstimateModalOpen, setIsEstimateModalOpen] = useState(false);
 
     const [selectedProjectId, setSelectedProjectId] = useState<string>('1');
     const [clientTasks, setClientTasks] = useState<Task[]>([]);
@@ -401,8 +405,10 @@ function App() {
 
     const handleSaveTask = (task: Task) => {
         if (!task.id) {
+            const maxOrder = tasks.length > 0 ? Math.max(...tasks.map(t => t.order || 0)) : 0;
             const newTask = {
                 ...task,
+                order: maxOrder + 1,
                 type: task.type || 'task',
                 projectId: selectedProjectId || '1',
                 parent: task.parent || null
@@ -428,6 +434,23 @@ function App() {
     const [currentFiscalYear, setCurrentFiscalYear] = useState(new Date().getFullYear().toString());
     const [clients, setClients] = useState<any[]>([]); // Start empty as requested
     const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
+    const [clientKnowledge, setClientKnowledge] = useState<string[]>([]);
+
+    // Fetch knowledge base (RAG) when client changes
+    useEffect(() => {
+        if (!selectedClientId) {
+            setClientKnowledge([]);
+            return;
+        }
+
+        if (isConnected) {
+            ProjectService.getKnowledgeBase(selectedClientId)
+                .then(setClientKnowledge)
+                .catch(console.error);
+        } else {
+            setClientKnowledge([]);
+        }
+    }, [selectedClientId, isConnected]);
 
     // Initial View & Routing Logic
     useEffect(() => {
@@ -516,6 +539,7 @@ function App() {
     const getParsedViewType = () => {
         if (currentView === 'clients_manage') return 'clients_manage';
         if (currentView === 'team') return 'team';
+        if (currentView === 'settings') return 'settings';
 
         if (currentView.startsWith('client_')) {
             if (currentView.endsWith('_reports')) return 'reports';
@@ -632,6 +656,210 @@ function App() {
     };
 
 
+    const handleApplyEstimate = async (estimate: EstimateResult) => {
+        if (!selectedProjectId) return;
+
+        const projectStart = new Date();
+        const prefix = `ai-${Date.now()}-`;
+        const idMap: Record<string, string> = {};
+        const roleMap: Record<string, string> = {};
+
+        // 0. Prepare Hybrid Phases
+        const phaseIds = {
+            planning: `${prefix}phase-plan`,
+            development: `${prefix}phase-dev`,
+            testing: `${prefix}phase-test`,
+            rollout: `${prefix}phase-rollout`
+        };
+
+        const phases: Task[] = [
+            {
+                id: phaseIds.planning,
+                projectId: selectedProjectId,
+                name: "Planejamento e Análise",
+                type: "project",
+                start: projectStart,
+                end: addDays(projectStart, 5), // Initial placement, will auto-expand
+                progress: 0,
+                parent: null,
+                dependencies: [],
+                styles: { backgroundColor: '#60a5fa', progressColor: '#93c5fd' }, // Blue
+                order: 0
+            },
+            {
+                id: phaseIds.development,
+                projectId: selectedProjectId,
+                name: "Desenvolvimento",
+                type: "project",
+                start: addDays(projectStart, 6),
+                end: addDays(projectStart, 15),
+                progress: 0,
+                parent: null,
+                dependencies: [phaseIds.planning],
+                styles: { backgroundColor: '#f59e0b', progressColor: '#fcd34d' }, // Amber
+                order: 100 // Spaced out order
+            },
+            {
+                id: phaseIds.testing,
+                projectId: selectedProjectId,
+                name: "Testes",
+                type: "project",
+                start: addDays(projectStart, 16),
+                end: addDays(projectStart, 20),
+                progress: 0,
+                parent: null,
+                dependencies: [phaseIds.development],
+                styles: { backgroundColor: '#ef4444', progressColor: '#fca5a5' }, // Red
+                order: 200
+            },
+            {
+                id: phaseIds.rollout,
+                projectId: selectedProjectId,
+                name: "Preparação, Rollout e Acompanhamento",
+                type: "project",
+                start: addDays(projectStart, 21),
+                end: addDays(projectStart, 25),
+                progress: 0,
+                parent: null,
+                dependencies: [phaseIds.testing],
+                styles: { backgroundColor: '#10b981', progressColor: '#6ee7b7' }, // Green
+                order: 300
+            }
+        ];
+
+        // 1. Generate ID Map & Resource Logic
+        estimate.tasks.forEach(t => { idMap[t.id] = prefix + t.id; });
+
+        for (const t of estimate.tasks) {
+            if (t.role) {
+                const normalizedRole = t.role.trim();
+                if (!roleMap[normalizedRole]) {
+                    const existingRes = resources.find(r => r.role.toLowerCase() === normalizedRole.toLowerCase() || r.name.toLowerCase() === normalizedRole.toLowerCase());
+                    if (existingRes) {
+                        roleMap[normalizedRole] = existingRes.id;
+                    } else {
+                        const newResData = {
+                            name: `AI: ${normalizedRole}`,
+                            role: normalizedRole,
+                            hourlyRate: t.hourly_rate || 100,
+                            avatarUrl: ''
+                        };
+                        let newId = `res-ai-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                        if (isConnected) {
+                            try {
+                                const docRef = await ProjectService.addResource(newResData);
+                                newId = docRef.id;
+                            } catch (e) {
+                                console.error("Failed to auto-create resource", e);
+                            }
+                        } else {
+                            setResources(prev => [...prev, { ...newResData, id: newId }]);
+                        }
+                        roleMap[normalizedRole] = newId;
+                    }
+                }
+            }
+        }
+
+        // 2. Build AI Tasks (Children)
+        const aiTasks: Task[] = estimate.tasks.map((t, index) => {
+            const start = addDays(projectStart, t.start_offset_days || 0);
+            const duration = Math.max(1, t.duration_days || 1);
+            const end = addDays(start, duration);
+
+            let parentId = null;
+            if (t.category && phaseIds[t.category]) {
+                parentId = phaseIds[t.category];
+            } else if (t.parent_id && idMap[t.parent_id]) {
+                parentId = idMap[t.parent_id];
+            }
+
+            // Fallback: If no category and no parent, put in Planning or leave root?
+            // Let's leave root if completely undefined, but AI instructions say strict category.
+
+            return {
+                id: idMap[t.id],
+                projectId: selectedProjectId,
+                name: t.name,
+                type: t.type === 'project' ? 'project' : t.type === 'milestone' ? 'milestone' : 'task',
+                start: start,
+                end: end,
+                progress: 0,
+                parent: parentId,
+                dependencies: t.dependencies ? t.dependencies.map(d => idMap[d] || d) : [],
+                resourceId: t.role ? roleMap[t.role.trim()] : undefined,
+                styles: { progressColor: '#8b5cf6', backgroundColor: '#8b5cf6' },
+                order: index + 500 // Start after phases
+            } as Task;
+        });
+
+        // 3. Merge & Add (Phases first)
+        const allNewTasks = [...phases, ...aiTasks];
+
+        for (const task of allNewTasks) {
+            await onAddTaskWrapper(task);
+        }
+
+        // 4. Update Project Metadata
+        if (selectedProjectId) {
+            const updates = {
+                aiConfidence: estimate.confidence_score,
+                aiSummary: estimate.description
+            };
+            if (isConnected) {
+                await ProjectService.updateProject(selectedProjectId, updates);
+            } else {
+                setProjects(prev => prev.map(p => p.id === selectedProjectId ? { ...p, ...updates } : p));
+            }
+        }
+
+        setIsEstimateModalOpen(false);
+    };
+
+    const handleEstimateClick = async () => {
+        if (projectTasks.length > 0) {
+            if (window.confirm("Já existem tarefas criadas para este projeto. Deseja excluir todo planejamento atual e gerar um novo?")) {
+                if (isConnected) {
+                    try {
+                        await ProjectService.deleteAllTasksForProject(selectedProjectId);
+                    } catch (e) {
+                        console.error("Error clearing tasks", e);
+                        alert("Erro ao limpar tarefas antigas. Verifique a conexão.");
+                        return;
+                    }
+                } else {
+                    setDbTasks(prev => prev.filter(t => t.projectId !== selectedProjectId));
+                }
+                setIsEstimateModalOpen(true);
+            }
+        } else {
+            setIsEstimateModalOpen(true);
+        }
+    };
+
+    const handleApproveProject = async () => {
+        if (!selectedProjectId || !selectedClientId) return;
+        const project = projects.find(p => p.id === selectedProjectId);
+        if (!project) return;
+
+        const summary = `[MEMÓRIA DE PROJETO APROVADO]
+Nome: ${project.name}
+Descrição: ${project.aiSummary || project.description || 'N/A'}
+Total Tarefas: ${projectTasks.length}
+Confiança da IA na época: ${project.aiConfidence ? (project.aiConfidence * 100).toFixed(0) + '%' : 'N/A'}
+Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (e mais ${Math.max(0, projectTasks.length - 5)} tarefas)`;
+
+        if (window.confirm("Deseja aprovar este planejamento e ensinar o padrão à IA?")) {
+            if (isConnected) {
+                await ProjectService.addKnowledgeEntry(selectedClientId, summary);
+                setClientKnowledge(prev => [...prev, summary]); // Optimistic update
+                alert("Planejamento aprovado e memorizado!");
+            } else {
+                alert("Necessário estar online para salvar aprendizado.");
+            }
+        }
+    };
+
     return (
         <div className="flex h-screen bg-gray-50 overflow-hidden font-sans">
             <Sidebar
@@ -698,23 +926,90 @@ function App() {
 
                     {/* View Title Header */}
                     <div className="flex justify-between items-end mb-6">
-                        <div>
+                        <div className="flex-1 mr-6">
                             <h1 className="text-2xl font-bold text-gray-900">
                                 {parsedViewType === 'team' ? 'Gestão da Equipe' :
-                                    parsedViewType === 'clients_manage' ? 'Gestão de Clientes' :
-                                        parsedViewType === 'my_projects' ? 'Portfólio de Projetos' :
-                                            parsedViewType === 'dashboard' ? 'Relatório Operacional (Execução Diária)' :
-                                                parsedViewType === 'reports' ? 'Relatório Estratégico (Visão Executiva)' :
-                                                    parsedViewType === 'gantt' ? 'Relatório Tático-Gerencial' :
-                                                        (projects.find(p => p.id === selectedProjectId)?.name || 'Visão Geral')}
+                                    parsedViewType === 'settings' ? 'Configurações do Sistema' :
+                                        parsedViewType === 'clients_manage' ? 'Gestão de Clientes' :
+                                            parsedViewType === 'my_projects' ? 'Portfólio de Projetos' :
+                                                parsedViewType === 'dashboard' ? 'Relatório Operacional (Execução Diária)' :
+                                                    parsedViewType === 'reports' ? 'Relatório Estratégico (Visão Executiva)' :
+                                                        parsedViewType === 'gantt' ? 'Relatório Tático-Gerencial' :
+                                                            (projects.find(p => p.id === selectedProjectId)?.name || 'Visão Geral')}
                             </h1>
                             <p className="text-gray-500 mt-1">
                                 {parsedViewType === 'dashboard' ? 'Foco em tarefas, eficiência e rotina do dia a dia.' :
                                     parsedViewType === 'reports' ? 'Visão de longo prazo, KPIs de portfólio e alinhamento de negócio.' :
                                         ''}
                             </p>
+
+                            {parsedViewType === 'gantt' && selectedProjectId && (() => {
+                                const activeProject = projects.find(p => p.id === selectedProjectId);
+                                if (!activeProject) return null;
+                                return (
+                                    <div className="mt-3 w-full animate-in fade-in slide-in-from-top-2">
+                                        <div className="relative group">
+                                            <textarea
+                                                value={activeProject.aiSummary || ''}
+                                                onChange={(e) => {
+                                                    const val = e.target.value;
+                                                    setProjects(prev => prev.map(p => p.id === selectedProjectId ? { ...p, aiSummary: val } : p));
+                                                }}
+                                                onBlur={(e) => {
+                                                    if (isConnected) {
+                                                        ProjectService.updateProject(selectedProjectId, { aiSummary: e.target.value }).catch(console.error);
+                                                    }
+                                                }}
+                                                className="w-full bg-transparent border-0 text-gray-600 text-sm p-0 focus:ring-0 resize-none hover:bg-gray-50 rounded px-2 -ml-2 transition-colors"
+                                                rows={2}
+                                                placeholder="Adicione um resumo executivo..."
+                                            />
+                                            <Sparkles size={12} className="absolute -left-5 top-1 text-purple-400 opacity-50" />
+                                        </div>
+                                    </div>
+                                );
+                            })()}
+                        </div>
+
+                        <div className="flex items-center gap-3 shrink-0 mb-1">
+                            {parsedViewType === 'gantt' && selectedProjectId && (() => {
+                                const proj = projects.find(p => p.id === selectedProjectId);
+                                return (
+                                    <>
+                                        {proj?.aiConfidence && (
+                                            <div className={`px-3 py-2 rounded-lg text-xs font-bold border flex items-center gap-2 ${proj.aiConfidence > 0.8
+                                                ? 'bg-green-50 text-green-700 border-green-200'
+                                                : 'bg-orange-50 text-orange-700 border-orange-200'
+                                                }`}>
+                                                <Sparkles size={14} />
+                                                {(proj.aiConfidence * 100).toFixed(0)}% Confiança
+                                            </div>
+                                        )}
+                                        <button
+                                            onClick={handleApproveProject}
+                                            className="bg-green-600 hover:bg-green-700 text-white px-3 py-2.5 rounded-lg flex items-center gap-2 font-medium shadow-lg shadow-green-100 transition-all hover:scale-105 active:scale-95 text-xs lg:text-sm"
+                                            title="Aprovar e Ensinar à IA"
+                                        >
+                                            <CheckCircle size={16} />
+                                            Aprovar
+                                        </button>
+                                        <button
+                                            onClick={handleEstimateClick}
+                                            className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg flex items-center gap-2 font-medium shadow-lg shadow-indigo-100 transition-all hover:scale-105 active:scale-95"
+                                        >
+                                            <Sparkles size={18} />
+                                            Estimar com IA
+                                        </button>
+                                    </>
+                                );
+                            })()}
                         </div>
                     </div>
+
+                    {/* SETTINGS VIEW */}
+                    {parsedViewType === 'settings' && (
+                        <SettingsView />
+                    )}
 
                     {/* CLIENTS MANAGEMENT VIEW */}
                     {parsedViewType === 'clients_manage' && (
@@ -734,7 +1029,17 @@ function App() {
                     {/* GANTT / TÁTICO VIEW */}
                     {parsedViewType === 'gantt' && (
                         <>
-                            <ProjectSummary stats={stats} />
+                            <ProjectSummary
+                                stats={stats}
+                                project={projects.find(p => p.id === selectedProjectId)}
+                                onUpdateProject={(updated) => {
+                                    if (isConnected) {
+                                        ProjectService.updateProject(updated.id, updated).catch(console.error);
+                                    } else {
+                                        setProjects(prev => prev.map(p => p.id === updated.id ? updated : p));
+                                    }
+                                }}
+                            />
                             <div className="flex border-b border-gray-200 mb-6">
                                 <button
                                     onClick={() => setGanttTab('schedule')}
@@ -748,6 +1053,7 @@ function App() {
                                 >
                                     Tarefas
                                 </button>
+                                {/* Button removed */}
                             </div>
                             {ganttTab === 'schedule' && (
                                 <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-[650px] flex flex-col mt-8">
@@ -822,6 +1128,13 @@ function App() {
                     onCancel={() => setIsTaskModalOpen(false)}
                 />
             )}
+            <EstimateModal
+                isOpen={isEstimateModalOpen}
+                onClose={() => setIsEstimateModalOpen(false)}
+                onApplyEstimate={handleApplyEstimate}
+                clientContext={clients.find(c => c.id === selectedClientId)?.context}
+                knowledgeBase={clientKnowledge}
+            />
         </div>
     );
 }

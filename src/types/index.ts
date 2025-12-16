@@ -49,6 +49,8 @@ export interface Project {
     margin?: number; // Contract Margem (%)
     deliveryDeviation?: number; // Desvio de Deleivery (%)
     netValue?: number; // Valor Líquido
+    aiConfidence?: number; // 0-1 Score
+    aiSummary?: string; // Breve descrição da IA
 }
 
 // Helper for UI view

@@ -113,6 +113,16 @@ export const ProjectService = {
         return deleteDoc(doc(db, TASKS_COL, taskId));
     },
 
+    deleteAllTasksForProject: async (projectId: string) => {
+        const q = query(collection(db, TASKS_COL), where('projectId', '==', projectId));
+        const snapshot = await getDocs(q);
+        const batch = writeBatch(db);
+        snapshot.docs.forEach((doc) => {
+            batch.delete(doc.ref);
+        });
+        return batch.commit();
+    },
+
     batchUpdateTasks: async (updates: { id: string, data: Partial<Task> }[]) => {
         const batch = writeBatch(db);
         updates.forEach(({ id, data }) => {
@@ -193,7 +203,21 @@ export const ProjectService = {
                 // In a real generic seed we need to capture IDs first. Skipping complex hierarchy for basic seed.
             }
         ];
+    },
 
+    // --- Knowledge Base (RAG) ---
+    addKnowledgeEntry: async (clientId: string, entry: string) => {
+        const kbRef = collection(db, CLIENTS_COL, clientId, 'knowledgeBase');
+        return addDoc(kbRef, {
+            content: entry,
+            createdAt: new Date()
+        });
+    },
 
+    getKnowledgeBase: async (clientId: string) => {
+        const kbRef = collection(db, CLIENTS_COL, clientId, 'knowledgeBase');
+        const q = query(kbRef);
+        const snapshot = await getDocs(q);
+        return snapshot.docs.map(doc => doc.data().content as string);
     }
 };

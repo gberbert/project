@@ -160,7 +160,10 @@ export const Sidebar = ({ activeView, onNavigate, className = '', clients = [], 
             </nav>
 
             <div className="p-4 border-t border-slate-800 bg-slate-950/30">
-                <button className="flex items-center text-slate-400 hover:text-white transition-colors w-full justify-center lg:justify-start group">
+                <button
+                    onClick={() => onNavigate('settings')}
+                    className="flex items-center text-slate-400 hover:text-white transition-colors w-full justify-center lg:justify-start group"
+                >
                     <Settings size={20} className="group-hover:rotate-90 transition-transform duration-500" />
                     <span className="ml-3 hidden lg:block font-medium">Configurações</span>
                 </button>

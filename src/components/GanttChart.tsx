@@ -47,7 +47,8 @@ const SortableTaskRow = ({
     onDeleteTask,
     isCompact,
     onToggleCollapse,
-    isCollapsed
+    isCollapsed,
+    hasChildren
 }: {
     task: GanttLibTask;
     originalTask?: Task;
@@ -62,6 +63,8 @@ const SortableTaskRow = ({
     isCompact?: boolean;
     onToggleCollapse?: (taskId: string) => void;
     isCollapsed?: boolean;
+    hasChildren?: boolean;
+
 }) => {
     const {
         attributes,
@@ -117,7 +120,7 @@ const SortableTaskRow = ({
 
                 {/* Hierarchy Indentation & Expander */}
                 <div style={{ paddingLeft: `${paddingLeft}px` }} className="flex items-center">
-                    {task.type === 'project' ? (
+                    {(task.type === 'project' || hasChildren) ? (
                         <button
                             onClick={(e) => {
                                 e.stopPropagation();
@@ -134,7 +137,7 @@ const SortableTaskRow = ({
 
                 {/* Name (Click to Edit) */}
                 <div
-                    className={`flex-1 cursor-pointer truncate ${task.type === 'project' ? 'font-bold text-blue-600' : ''}`}
+                    className={`flex-1 cursor-pointer truncate ${(task.type === 'project' || hasChildren) ? 'font-bold text-blue-600' : ''}`}
                     onClick={(e) => { e.stopPropagation(); originalTask && onEdit(originalTask); }}
                     title={originalTask ? originalTask.name : task.name}
                 >
@@ -531,7 +534,7 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
 
             // Auto-Scroll Logic
             if (!initialScrollDone.current) {
-                // Find robust scroll container (usually the one with overflow)
+                // Find robust scroll container
                 let scrollContainer: Element | null = null;
                 for (const svg of svgs) {
                     const p = svg.parentElement;
@@ -540,32 +543,27 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                         break;
                     }
                 }
-                if (!scrollContainer && svgs.length > 0) scrollContainer = svgs[svgs.length - 1].parentElement; // Fallback to last (Body)
+                if (!scrollContainer && svgs.length > 0) scrollContainer = svgs[svgs.length - 1].parentElement;
 
                 if (scrollContainer) {
                     if (view === ViewMode.Week) {
-                        // Week View: Scroll to Start (First Task)
                         scrollContainer.scrollTo({ left: 0, behavior: 'smooth' });
                         initialScrollDone.current = true;
                     } else if (todayScrollTarget) {
-                        // Day/Month View: Center Today (Detected)
                         const center = todayScrollTarget.x - (scrollContainer.clientWidth / 2);
                         if (Math.abs(scrollContainer.scrollLeft - center) > 10) {
                             scrollContainer.scrollTo({ left: Math.max(0, center), behavior: 'smooth' });
                         }
                         initialScrollDone.current = true;
                     } else if (anchorDate && view !== ViewMode.Week) {
-                        // Fallback Calculation
                         let offset = 0;
                         if (view === ViewMode.Month) {
                             const months = (today.getFullYear() - anchorDate.getFullYear()) * 12 + (today.getMonth() - anchorDate.getMonth());
                             offset = months * columnWidth;
                         } else {
-                            // Day
                             const days = Math.floor((today.getTime() - anchorDate.getTime()) / (1000 * 60 * 60 * 24));
                             offset = days * columnWidth;
                         }
-
                         const targetX = anchorX + offset;
                         const center = targetX - (scrollContainer.clientWidth / 2);
                         if (Math.abs(scrollContainer.scrollLeft - center) > 10) {
@@ -574,10 +572,6 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                         initialScrollDone.current = true;
                     }
                 }
-            }
-
-            if (observer) {
-                observer.observe(container, { childList: true, subtree: true, attributes: true });
             }
         };
 
@@ -916,6 +910,7 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                                     >
                                         {props.tasks.filter(t => t.id !== 'gantt-spacer').map(t => {
                                             const original = tasks.find(orig => orig.id === t.id);
+                                            const hasChildren = tasks.some(sub => sub.parent === t.id);
                                             return (
                                                 <SortableTaskRow
                                                     key={t.id}
@@ -932,6 +927,7 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                                                     isCompact={isCompact}
                                                     onToggleCollapse={toggleTaskCollapse}
                                                     isCollapsed={collapsedTaskIds.includes(t.id)}
+                                                    hasChildren={hasChildren}
                                                 />
                                             );
                                         })}
