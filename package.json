@@ -1,7 +1,7 @@
 {
   "name": "pms-gantt-system",
   "private": true,
-  "version": "0.1.9",
+  "version": "0.1.10",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -28,6 +28,7 @@
     "tailwind-merge": "^2.2.1"
   },
   "devDependencies": {
+    "@types/node": "^25.0.2",
     "@types/react": "^18.2.64",
     "@types/react-dom": "^18.2.21",
     "@typescript-eslint/eslint-plugin": "^7.1.1",

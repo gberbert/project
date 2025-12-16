@@ -16,8 +16,11 @@ import { useProjectLogic } from './hooks/useProjectLogic';
 import { isAfter, isWeekend, addDays, differenceInDays, addBusinessDays } from 'date-fns';
 
 import { Task, Resource, Project } from './types';
-import { Database, CloudOff, Menu, Sparkles, CheckCircle } from 'lucide-react';
+import { Database, CloudOff, Menu, Sparkles, CheckCircle, Activity, Lock, LogOut, ChevronDown } from 'lucide-react';
 import { ProjectService } from './services/projectService';
+import { StabilizationModal } from './components/StabilizationModal';
+import { useAuth } from './contexts/AuthContext';
+import { LoginView } from './components/LoginView';
 
 // --- Stats Helper ---
 const countBusinessDays = (startDate: Date | undefined, endDate: Date | undefined) => {
@@ -44,15 +47,20 @@ const calculateProjectStats = (tasks: Task[], resources: Resource[]) => {
     let minRealStart = new Date(8640000000000000);
     let maxRealEnd = new Date(-8640000000000000);
 
-    let totalWeightedProgress = 0;
-    let totalDurationMs = 0;
     let totalCost = 0;
     let totalRealCost = 0;
+
+    // EVM Accumulators
+    let totalEarnedValue = 0;
+    let totalPlannedValue = 0;
 
     // Filter to LEAF tasks
     const leafTasks = tasks.filter(t => t.type !== 'project');
 
     if (leafTasks.length === 0) return { totalCost: 0, totalRealCost: 0, progress: 0, plannedProgress: 0, totalDuration: 0, totalRealDuration: 0, spi: 0, cpi: 0 };
+
+    const today = new Date();
+    today.setHours(12, 0, 0, 0);
 
     leafTasks.forEach(task => {
         const startMs = task.start.getTime();
@@ -68,11 +76,7 @@ const calculateProjectStats = (tasks: Task[], resources: Resource[]) => {
             if (task.realEnd.getTime() > maxRealEnd.getTime()) maxRealEnd = task.realEnd;
         }
 
-        const durationMs = endMs - startMs;
-        totalWeightedProgress += (task.progress || 0) * durationMs;
-        totalDurationMs += durationMs;
-
-        // Calculate Cost (Flexible: uses task.hourlyRate or falls back to resourceId)
+        // Calculate Cost Interest (Hourly Rate)
         let rate = task.hourlyRate || 0;
         if (!rate && task.resourceId && resources.length > 0) {
             const res = resources.find(r => r.id === task.resourceId);
@@ -81,23 +85,38 @@ const calculateProjectStats = (tasks: Task[], resources: Resource[]) => {
 
         if (rate > 0) {
             const days = Math.max(1, countBusinessDays(task.start, task.end));
-            totalCost += days * 8 * rate;
+            const budget = days * 8 * rate; // BAC (Budget At Completion) for this task
+
+            totalCost += budget;
+
+            // EV (Earned Value) = Budget * %Complete
+            const taskEV = budget * ((task.progress || 0) / 100);
+            totalEarnedValue += taskEV;
+
+            // AC (Actual Cost)
             if (task.realStart && task.realEnd) {
                 const rDays = Math.max(1, countBusinessDays(task.realStart, task.realEnd));
                 totalRealCost += rDays * 8 * rate;
             }
+
+            // PV (Planned Value) = Budget * %Scheduled
+            let taskPVPercent = 0;
+            const taskStart = new Date(task.start); taskStart.setHours(12, 0, 0, 0);
+            const taskEnd = new Date(task.end); taskEnd.setHours(12, 0, 0, 0);
+
+            if (isAfter(taskStart, today)) {
+                taskPVPercent = 0; // Future
+            } else if (isAfter(today, taskEnd)) {
+                taskPVPercent = 1; // Past deadline
+            } else {
+                // In progress window
+                const totalTaskDays = Math.max(1, countBusinessDays(taskStart, taskEnd));
+                const elapsedTaskDays = countBusinessDays(taskStart, today);
+                taskPVPercent = Math.min(1, Math.max(0, elapsedTaskDays / totalTaskDays));
+            }
+            totalPlannedValue += budget * taskPVPercent;
         }
     });
-
-    const roots = tasks.filter(t => !t.parent || !tasks.find(p => p.id === t.parent));
-    let rootWeightedProgress = 0;
-    let rootTotalDuration = 0;
-    roots.forEach(r => {
-        let duration = Math.max(1, differenceInDays(r.end, r.start));
-        rootWeightedProgress += (r.progress || 0) * duration;
-        rootTotalDuration += duration;
-    });
-    const overallProgress = rootTotalDuration > 0 ? Math.round(rootWeightedProgress / rootTotalDuration) : 0;
 
     const totalDurationBusinessDays = countBusinessDays(minStart, maxEnd);
     let totalRealDurationBusinessDays = 0;
@@ -105,27 +124,23 @@ const calculateProjectStats = (tasks: Task[], resources: Resource[]) => {
         totalRealDurationBusinessDays = countBusinessDays(minRealStart, maxRealEnd);
     }
 
-    const today = new Date();
-    today.setHours(12, 0, 0, 0);
-    let plannedProgress = 0;
-    if (minStart.getTime() < 8640000000000000 && totalDurationBusinessDays > 0) {
-        if (isAfter(minStart, today)) plannedProgress = 0;
-        else if (isAfter(today, maxEnd)) plannedProgress = 100;
-        else {
-            const elapsedDays = countBusinessDays(minStart, today);
-            plannedProgress = Math.round((elapsedDays / totalDurationBusinessDays) * 100);
-        }
-    }
-    plannedProgress = Math.min(100, Math.max(0, plannedProgress));
+    // Consolidated Metrics
+    // Progress is now Weighted by Value (EV / BAC) instead of simple duration
+    const progress = totalCost > 0 ? Math.round((totalEarnedValue / totalCost) * 100) : 0;
 
-    let spi = plannedProgress > 0 ? overallProgress / plannedProgress : 1;
-    let cpi = totalRealCost > 0 ? totalCost / totalRealCost : 1;
+    // Planned Progress (PV / BAC)
+    const plannedProgress = totalCost > 0 ? Math.round((totalPlannedValue / totalCost) * 100) : 0;
 
-    // Format for display scaling/rounding if needed
+    // CPI = EV / AC
+    const cpi = totalRealCost > 0 ? totalEarnedValue / totalRealCost : 1;
+
+    // SPI = EV / PV
+    const spi = totalPlannedValue > 0 ? totalEarnedValue / totalPlannedValue : 1;
+
     return {
         totalCost,
         totalRealCost,
-        progress: overallProgress,
+        progress,
         plannedProgress,
         totalDuration: Math.max(0, totalDurationBusinessDays),
         totalRealDuration: Math.max(0, totalRealDurationBusinessDays),
@@ -202,6 +217,7 @@ const INITIAL_TASKS: Task[] = [
 ];
 
 function App() {
+    const { user, loading: authLoading, logout, isAdmin } = useAuth();
     const [dbTasks, setDbTasks] = useState<Task[]>([]);
     const [resources, setResources] = useState<Resource[]>(MOCK_RESOURCES);
     const [isConnected, setIsConnected] = useState(false);
@@ -210,7 +226,9 @@ function App() {
     const [currentView, setCurrentView] = useState('gantt');
     const [ganttTab, setGanttTab] = useState<'schedule' | 'tasks'>('schedule');
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+    const [isStabilizationModalOpen, setIsStabilizationModalOpen] = useState(false);
     const [isEstimateModalOpen, setIsEstimateModalOpen] = useState(false);
+    const [isProfileOpen, setIsProfileOpen] = useState(false);
 
     const [selectedProjectId, setSelectedProjectId] = useState<string>('1');
     const [clientTasks, setClientTasks] = useState<Task[]>([]);
@@ -257,26 +275,34 @@ function App() {
 
     // Persistence Subscriptions (Projects & Clients)
     useEffect(() => {
+        if (!user) {
+            setProjects([]);
+            setClients([]);
+            return;
+        }
+
         const unsubProjects = ProjectService.subscribeProjects((projs) => {
             setProjects(projs);
-        });
+        }, user.uid, user.role);
 
         const unsubClients = ProjectService.subscribeClients((cls) => {
             setClients(cls);
-        });
+        }, user.uid, user.role);
 
         return () => {
             unsubProjects();
             unsubClients();
         };
-    }, []);
+    }, [user]);
 
     // Project Logic & State
-    const handleCreateProject = async (projectData: Omit<Project, 'id' | 'createdAt'>) => {
+    const handleCreateProject = async (projectData: Omit<Project, 'id' | 'createdAt' | 'ownerId'>) => {
+        if (!user) return;
         try {
             await ProjectService.createProject({
                 ...projectData,
-                createdAt: new Date()
+                createdAt: new Date(),
+                ownerId: user.uid
             });
         } catch (error) {
             console.error("Error creating project:", error);
@@ -310,7 +336,6 @@ function App() {
         indentTask,
         outdentTask,
         reorderTasks,
-        getProjectStats
     } = useProjectLogic(dbTasks);
 
     const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
@@ -459,7 +484,7 @@ function App() {
 
     // Initial View & Routing Logic
     useEffect(() => {
-        if (currentView === 'clients_manage') {
+        if (currentView === 'clients_manage' || currentView === 'global_projects') {
             setSelectedClientId(null);
             setSelectedProjectId(null as any);
         } else if (currentView.startsWith('client_')) {
@@ -469,14 +494,14 @@ function App() {
 
             // Heuristic parser since ID might have underscores (though we used Date.now())
             // Safe assumption: view is last part.
-            let viewType = '';
+            // let viewType = '';
             let clientId = '';
 
             if (currentView.endsWith('_reports')) {
-                viewType = 'reports';
+                // viewType = 'reports'; // Unused
                 clientId = currentView.replace('client_', '').replace('_reports', '');
             } else if (currentView.endsWith('_my_projects')) {
-                viewType = 'my_projects';
+                // viewType = 'my_projects'; // Unused
                 clientId = currentView.replace('client_', '').replace('_my_projects', '');
             }
 
@@ -506,9 +531,13 @@ function App() {
         }
     }, [currentView, projects]); // Added projects dependency to find clientId from project
 
-    const handleCreateClient = async (newClient: any) => {
+    const handleCreateClient = async (clientData: any) => {
+        if (!user) return;
         try {
-            await ProjectService.createClient(newClient);
+            await ProjectService.createClient({
+                ...clientData,
+                ownerId: user.uid
+            });
         } catch (error) {
             console.error("Error creating client:", error);
         }
@@ -543,6 +572,7 @@ function App() {
     // Derived State for Rendering
     const getParsedViewType = () => {
         if (currentView === 'clients_manage') return 'clients_manage';
+        if (currentView === 'global_projects') return 'my_projects';
         if (currentView === 'team') return 'team';
         if (currentView === 'settings') return 'settings';
 
@@ -563,6 +593,11 @@ function App() {
 
     // Aggregation Logic for Client Reports (Consolidated & Dynamic)
     useEffect(() => {
+        // If global projects (no client), we might want to aggregate ALL tasks? 
+        // For now, let's keep this focused on Client Reports logic.
+        // If parsedViewType is reports and NO client selected, we might be in trouble or it renders empty.
+        // But 'reports' is only reachable via client_... currently.
+
         if (parsedViewType !== 'reports' || !selectedClientId) return;
 
         const targetProjects = projects.filter(p => p.clientId === selectedClientId);
@@ -620,7 +655,7 @@ function App() {
             const pYear = new Date(p.startDate).getFullYear().toString();
             return pYear === currentFiscalYear;
         })
-        : [];
+        : (parsedViewType === 'my_projects' ? projects.filter(p => new Date(p.startDate).getFullYear().toString() === currentFiscalYear) : []);
 
     // When creating a project in "My Projects" of a client, attach that client ID
     const handleCreateProjectWrapper = (data: any) => {
@@ -667,7 +702,7 @@ function App() {
         const projectStart = new Date();
         const prefix = `ai-${Date.now()}-`;
         const idMap: Record<string, string> = {};
-        const roleMap: Record<string, string> = {};
+        // const roleMap: Record<string, string> = {};
 
         // 0. Prepare Hybrid Phases
         const phaseIds = {
@@ -923,6 +958,39 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
         setIsTaskModalOpen(false);
     };
 
+    if (authLoading) {
+        return (
+            <div className="h-screen w-full flex items-center justify-center bg-gray-50">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+            </div>
+        );
+    }
+
+    if (!user) return <LoginView />;
+
+    if (!user.isApproved && !isAdmin) {
+        return (
+            <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
+                <div className="bg-white p-8 rounded-xl shadow-lg max-w-md w-full text-center border border-yellow-200">
+                    <div className="mx-auto w-16 h-16 bg-yellow-100 rounded-full flex items-center justify-center mb-4">
+                        <Lock className="text-yellow-600" size={32} />
+                    </div>
+                    <h2 className="text-xl font-bold text-gray-900 mb-2">Acesso Pendente</h2>
+                    <p className="text-gray-600 mb-6">
+                        Sua conta ({user.email}) foi criada, mas aguarda aprovação do administrador Master.
+                    </p>
+                    <button
+                        onClick={logout}
+                        className="text-indigo-600 hover:text-indigo-800 font-medium text-sm hover:underline flex items-center justify-center gap-2"
+                    >
+                        <LogOut size={16} />
+                        Sair e tentar outra conta
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="flex h-screen bg-gray-50 overflow-hidden font-sans">
             <Sidebar
@@ -931,12 +999,14 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
                 className="hidden lg:flex"
                 clients={clients}
                 projects={projects}
+                currentUser={user}
             />
             <MobileMenu
                 activeView={currentView}
                 onNavigate={setCurrentView}
                 isOpen={isMobileMenuOpen}
                 onClose={() => setIsMobileMenuOpen(false)}
+                currentUser={user}
             />
 
             <div className="flex-1 flex flex-col min-w-0">
@@ -979,8 +1049,46 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
                         )}
                     </div>
 
-                    <div className="flex items-center gap-6">
-                        <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold">A</div>
+                    <div className="flex items-center gap-6 relative">
+                        <button
+                            onClick={() => setIsProfileOpen(!isProfileOpen)}
+                            className="flex items-center gap-2 hover:bg-gray-100 p-1.5 rounded-lg transition-all outline-none focus:ring-2 focus:ring-indigo-500 group"
+                        >
+                            <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold shadow-sm group-hover:shadow-md transition-shadow">
+                                {user?.displayName ? user.displayName.charAt(0).toUpperCase() : 'U'}
+                            </div>
+                            <span className="text-sm font-medium text-gray-700 hidden md:block max-w-[150px] truncate">
+                                {user?.displayName || 'Usuário'}
+                            </span>
+                            <ChevronDown size={14} className={`text-gray-400 transition-transform duration-200 ${isProfileOpen ? 'rotate-180' : ''}`} />
+                        </button>
+
+                        {isProfileOpen && (
+                            <>
+                                <div
+                                    className="fixed inset-0 z-40"
+                                    onClick={() => setIsProfileOpen(false)}
+                                ></div>
+                                <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-xl shadow-xl border border-gray-100 py-2 z-50 animate-in fade-in slide-in-from-top-2">
+                                    <div className="px-4 py-3 border-b border-gray-50 bg-gray-50/50">
+                                        <p className="text-sm font-bold text-gray-900 truncate">{user?.displayName || 'Usuário'}</p>
+                                        <p className="text-xs text-gray-500 truncate">{user?.email}</p>
+                                    </div>
+                                    <div className="p-2">
+                                        <button
+                                            onClick={() => {
+                                                logout();
+                                                setIsProfileOpen(false);
+                                            }}
+                                            className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg flex items-center gap-2 transition-colors font-medium"
+                                        >
+                                            <LogOut size={16} />
+                                            Sair da conta
+                                        </button>
+                                    </div>
+                                </div>
+                            </>
+                        )}
                     </div>
                 </header>
 
@@ -1049,6 +1157,14 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
                                             </div>
                                         )}
                                         <button
+                                            onClick={() => setIsStabilizationModalOpen(true)}
+                                            className="bg-amber-500 hover:bg-amber-600 text-white px-3 py-2.5 rounded-lg flex items-center gap-2 font-medium shadow-lg shadow-amber-100 transition-all hover:scale-105 active:scale-95 text-xs lg:text-sm"
+                                            title="Estabilizar Cronograma (Atrasos e Pendências)"
+                                        >
+                                            <Activity size={16} />
+                                            Estabilizar
+                                        </button>
+                                        <button
                                             onClick={handleApproveProject}
                                             className="bg-green-600 hover:bg-green-700 text-white px-3 py-2.5 rounded-lg flex items-center gap-2 font-medium shadow-lg shadow-green-100 transition-all hover:scale-105 active:scale-95 text-xs lg:text-sm"
                                             title="Aprovar e Ensinar à IA"
@@ -1056,13 +1172,15 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
                                             <CheckCircle size={16} />
                                             Aprovar
                                         </button>
-                                        <button
-                                            onClick={handleEstimateClick}
-                                            className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg flex items-center gap-2 font-medium shadow-lg shadow-indigo-100 transition-all hover:scale-105 active:scale-95"
-                                        >
-                                            <Sparkles size={18} />
-                                            Estimar com IA
-                                        </button>
+                                        {(isAdmin || user?.canUseAI) && (
+                                            <button
+                                                onClick={handleEstimateClick}
+                                                className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg flex items-center gap-2 font-medium shadow-lg shadow-indigo-100 transition-all hover:scale-105 active:scale-95"
+                                            >
+                                                <Sparkles size={18} />
+                                                Estimar com IA
+                                            </button>
+                                        )}
                                     </>
                                 );
                             })()}
@@ -1181,6 +1299,35 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
                     )}
                 </main>
             </div>
+
+            <StabilizationModal
+                isOpen={isStabilizationModalOpen}
+                onClose={() => setIsStabilizationModalOpen(false)}
+                tasks={projectTasks}
+                onUpdateTasks={async (updates) => {
+                    const formattedUpdates = updates.map(u => ({ id: u.id, data: u.changes }));
+
+                    if (isConnected) {
+                        try {
+                            await ProjectService.batchUpdateTasks(formattedUpdates);
+                            // Optimistic update locally
+                            setDbTasks(prev => {
+                                const map = new Map(updates.map(u => [u.id, u.changes]));
+                                return prev.map(t => map.has(t.id) ? { ...t, ...map.get(t.id) } : t);
+                            });
+                        } catch (e) {
+                            console.error("Batch update failed", e);
+                            alert("Erro ao salvar correções.");
+                        }
+                    } else {
+                        // Offline
+                        setDbTasks(prev => {
+                            const map = new Map(updates.map(u => [u.id, u.changes]));
+                            return prev.map(t => map.has(t.id) ? { ...t, ...map.get(t.id) } : t);
+                        });
+                    }
+                }}
+            />
 
             {isTaskModalOpen && (
                 <TaskForm

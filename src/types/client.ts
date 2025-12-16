@@ -13,4 +13,5 @@ export interface Client {
     budgets: ClientBudget[];
     createdAt?: Date;
     excludedYears?: string[];
+    ownerId?: string;
 }

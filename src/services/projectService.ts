@@ -32,9 +32,16 @@ const sanitizeData = (data: any) => {
 
 export const ProjectService = {
     // --- Clients ---
-    subscribeClients: (callback: (clients: Client[]) => void) => {
-        return onSnapshot(collection(db, CLIENTS_COL), (snapshot) => {
-            const clients = snapshot.docs.map(doc => {
+    subscribeClients: (callback: (clients: Client[]) => void, userId?: string, role?: string) => {
+        let q: any = collection(db, CLIENTS_COL);
+
+        // If not master and userId exists, filter by ownerId
+        if (role !== 'master' && userId) {
+            q = query(collection(db, CLIENTS_COL), where('ownerId', '==', userId));
+        }
+
+        return onSnapshot(q, (snapshot: any) => {
+            const clients = snapshot.docs.map((doc: any) => {
                 const data = doc.data();
                 return {
                     ...data,
@@ -60,9 +67,16 @@ export const ProjectService = {
     },
 
     // --- Projects ---
-    subscribeProjects: (callback: (projects: Project[]) => void) => {
-        return onSnapshot(collection(db, PROJECTS_COL), (snapshot) => {
-            const projects = snapshot.docs.map(doc => {
+    subscribeProjects: (callback: (projects: Project[]) => void, userId?: string, role?: string) => {
+        let q: any = collection(db, PROJECTS_COL);
+
+        // If not master and userId exists, filter by ownerId
+        if (role !== 'master' && userId) {
+            q = query(collection(db, PROJECTS_COL), where('ownerId', '==', userId));
+        }
+
+        return onSnapshot(q, (snapshot: any) => {
+            const projects = snapshot.docs.map((doc: any) => {
                 const data = doc.data();
                 return {
                     ...data,

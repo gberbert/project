@@ -166,10 +166,12 @@ export const TaskForm = ({ task, resources, allTasks, onSave, onCancel, onSplit 
     };
 
     const effortMetrics = useMemo(() => {
-        // Returns { hours, cost }
-        const recurseCalc = (tasks: Task[]): { hours: number, cost: number } => {
+        // Returns { hours, cost, realHours, realCost }
+        const recurseCalc = (tasks: Task[]): { hours: number, cost: number, realHours: number, realCost: number } => {
             let totalHours = 0;
             let totalCost = 0;
+            let totalRealHours = 0;
+            let totalRealCost = 0;
 
             for (const t of tasks) {
                 if (t.type === 'project') {
@@ -177,17 +179,24 @@ export const TaskForm = ({ task, resources, allTasks, onSave, onCancel, onSplit 
                     const sub = recurseCalc(children);
                     totalHours += sub.hours;
                     totalCost += sub.cost;
+                    totalRealHours += sub.realHours;
+                    totalRealCost += sub.realCost;
                 } else {
                     const h = countBusinessDays(t.start, t.end) * 8;
                     const r = t.hourlyRate || 0;
                     totalHours += h;
                     totalCost += h * r;
+
+                    // Real
+                    const rh = (t.realStart && t.realEnd) ? countBusinessDays(t.realStart, t.realEnd) * 8 : 0;
+                    totalRealHours += rh;
+                    totalRealCost += rh * r;
                 }
             }
-            return { hours: totalHours, cost: totalCost };
+            return { hours: totalHours, cost: totalCost, realHours: totalRealHours, realCost: totalRealCost };
         };
 
-        let data = { hours: 0, cost: 0 };
+        let data = { hours: 0, cost: 0, realHours: 0, realCost: 0 };
 
         if (formData.type === 'project') {
             if (formData.id) {
@@ -197,14 +206,18 @@ export const TaskForm = ({ task, resources, allTasks, onSave, onCancel, onSplit 
         } else {
             const h = countBusinessDays(formData.start, formData.end) * 8;
             const r = formData.hourlyRate || 0;
-            data = { hours: h, cost: h * r };
+
+            const rh = (formData.realStart && formData.realEnd) ? countBusinessDays(formData.realStart, formData.realEnd) * 8 : 0;
+
+            data = { hours: h, cost: h * r, realHours: rh, realCost: rh * r };
         }
 
         return {
             hours: data.hours,
             ftes: data.hours / 168,
             avgRate: data.hours > 0 ? (data.cost / data.hours) : 0,
-            totalCost: data.cost
+            totalCost: data.cost,
+            totalRealCost: data.realCost
         };
     }, [formData, allTasks]);
 
@@ -394,7 +407,7 @@ export const TaskForm = ({ task, resources, allTasks, onSave, onCancel, onSplit 
                         </div>
 
                         {/* Effort Metrics Display (Moved Here - Full Width) */}
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-1">
+                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mt-1">
                             <div className="bg-blue-50 p-3 rounded-lg border border-blue-100 flex flex-col justify-center items-center shadow-sm">
                                 <span className="text-[10px] text-blue-600 font-bold uppercase tracking-wider">Horas Úteis</span>
                                 <span className="text-xl font-bold text-blue-800">{effortMetrics.hours}h</span>
@@ -411,6 +424,12 @@ export const TaskForm = ({ task, resources, allTasks, onSave, onCancel, onSplit 
                                 <span className="text-[10px] text-amber-600 font-bold uppercase tracking-wider">Custo Estimado</span>
                                 <span className="text-xl font-bold text-amber-800">
                                     {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', notation: 'compact' }).format(effortMetrics.totalCost)}
+                                </span>
+                            </div>
+                            <div className="bg-cyan-50 p-3 rounded-lg border border-cyan-100 flex flex-col justify-center items-center shadow-sm">
+                                <span className="text-[10px] text-cyan-700 font-bold uppercase tracking-wider">Custo Realizado</span>
+                                <span className="text-xl font-bold text-cyan-900">
+                                    {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', notation: 'compact' }).format(effortMetrics.totalRealCost)}
                                 </span>
                             </div>
                         </div>

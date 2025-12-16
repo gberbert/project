@@ -1,15 +1,35 @@
 import { useState, useEffect } from 'react';
-import { Save, Eye, EyeOff } from 'lucide-react';
+import { Save, Eye, EyeOff, Check, Shield, ShieldAlert } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
+import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
+import { db } from '../config/firebase';
+import { AppUser } from '../types/auth';
 
 export const SettingsView = () => {
+    const { user, isAdmin, approveUser, toggleAI } = useAuth();
     const [apiKey, setApiKey] = useState('');
     const [showKey, setShowKey] = useState(false);
     const [message, setMessage] = useState('');
+
+    // User Management State
+    const [users, setUsers] = useState<AppUser[]>([]);
 
     useEffect(() => {
         const storedKey = localStorage.getItem('GEMINI_API_KEY');
         if (storedKey) setApiKey(storedKey);
     }, []);
+
+    // Subscribe to users if Admin
+    useEffect(() => {
+        if (!isAdmin) return;
+
+        const q = query(collection(db, 'users'), orderBy('createdAt', 'desc'));
+        const unsubscribe = onSnapshot(q, (snap) => {
+            const list = snap.docs.map(d => d.data() as AppUser);
+            setUsers(list);
+        });
+        return () => unsubscribe();
+    }, [isAdmin]);
 
     const handleSave = () => {
         localStorage.setItem('GEMINI_API_KEY', apiKey);
@@ -17,10 +37,101 @@ export const SettingsView = () => {
         setTimeout(() => setMessage(''), 3000);
     };
 
-    return (
-        <div className="p-8 max-w-4xl mx-auto h-full overflow-y-auto">
-            <h2 className="text-2xl font-bold text-gray-800 mb-6">Configurações</h2>
+    const handleToggleAccess = async (targetUid: string, currentStatus: boolean) => {
+        try {
+            await approveUser(targetUid, !currentStatus);
+        } catch (e) {
+            console.error(e);
+            alert("Erro ao atualizar status.");
+        }
+    };
 
+    return (
+        <div className="p-8 max-w-4xl mx-auto h-full overflow-y-auto animate-in fade-in duration-300">
+            <h2 className="text-2xl font-bold text-gray-900 mb-6">Configurações</h2>
+
+            {/* Access Management (Master Only) */}
+            {isAdmin && (
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-8">
+                    <div className="flex items-center gap-3 mb-4 border-b pb-4">
+                        <ShieldAlert className="text-indigo-600" />
+                        <div>
+                            <h3 className="text-lg font-bold text-gray-900">Gestão de Acessos</h3>
+                            <p className="text-sm text-gray-500">Aprovação de logins pendentes</p>
+                        </div>
+                    </div>
+
+                    <div className="overflow-hidden bg-gray-50 rounded-lg border border-gray-200">
+                        <table className="w-full text-sm text-left">
+                            <thead className="text-xs text-gray-500 uppercase bg-gray-100 border-b">
+                                <tr>
+                                    <th className="px-6 py-3">Usuário</th>
+                                    <th className="px-6 py-3">Email</th>
+                                    <th className="px-6 py-3 text-center">Perfil</th>
+                                    <th className="px-6 py-3 text-center">IA</th>
+                                    <th className="px-6 py-3 text-center">Status</th>
+                                    <th className="px-6 py-3 text-right">Ação</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-200">
+                                {users.map(u => (
+                                    <tr key={u.uid} className="bg-white">
+                                        <td className="px-6 py-4 font-medium text-gray-900">
+                                            {u.displayName || 'Sem Nome'}
+                                            {u.uid === user?.uid && <span className="ml-2 text-[10px] bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded">Você</span>}
+                                        </td>
+                                        <td className="px-6 py-4 text-gray-500">{u.email}</td>
+                                        <td className="px-6 py-4 text-center">
+                                            <span className={`px-2 py-1 rounded text-xs font-bold ${u.role === 'master' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-600'}`}>
+                                                {u.role.toUpperCase()}
+                                            </span>
+                                        </td>
+                                        <td className="px-6 py-4 text-center">
+                                            {u.role !== 'master' && (
+                                                <label className="relative inline-flex items-center cursor-pointer" title="Permitir uso de IA">
+                                                    <input
+                                                        type="checkbox"
+                                                        className="sr-only peer"
+                                                        checked={u.canUseAI}
+                                                        onChange={() => toggleAI && toggleAI(u.uid, !u.canUseAI)}
+                                                    />
+                                                    <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-purple-600"></div>
+                                                </label>
+                                            )}
+                                        </td>
+                                        <td className="px-6 py-4 text-center">
+                                            {u.isApproved ? (
+                                                <span className="flex items-center justify-center gap-1 text-green-600 font-bold text-xs">
+                                                    <Check size={14} /> Ativo
+                                                </span>
+                                            ) : (
+                                                <span className="flex items-center justify-center gap-1 text-amber-600 font-bold text-xs animate-pulse">
+                                                    <Shield size={14} /> Pendente
+                                                </span>
+                                            )}
+                                        </td>
+                                        <td className="px-6 py-4 text-right">
+                                            {u.role !== 'master' && (
+                                                <label className="relative inline-flex items-center cursor-pointer">
+                                                    <input
+                                                        type="checkbox"
+                                                        className="sr-only peer"
+                                                        checked={u.isApproved}
+                                                        onChange={() => handleToggleAccess(u.uid, u.isApproved)}
+                                                    />
+                                                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
+                                                </label>
+                                            )}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
+
+            {/* API Key Section */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
                 <h3 className="text-lg font-semibold text-gray-700 mb-4 border-b pb-2">Integrações</h3>
 

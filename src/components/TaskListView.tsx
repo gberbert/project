@@ -4,15 +4,17 @@ import { format, differenceInBusinessDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { Edit2, Trash2, CheckCircle2, Circle, Clock, Search, ChevronDown, ChevronRight, Folder } from 'lucide-react';
 import { ProjectService } from '../services/projectService';
+import { AppUser } from '../types/auth';
 
 interface TaskListViewProps {
     tasks: Task[];
     resources: Resource[];
     onEditTask: (task: Task) => void;
     isConnected: boolean;
+    currentUser?: AppUser | null;
 }
 
-export const TaskListView = ({ tasks, resources, onEditTask, isConnected }: TaskListViewProps) => {
+export const TaskListView = ({ tasks, resources, onEditTask, isConnected, currentUser }: TaskListViewProps) => {
     const [filter, setFilter] = useState('');
     const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
@@ -134,7 +136,7 @@ export const TaskListView = ({ tasks, resources, onEditTask, isConnected }: Task
     };
 
     // Recursive Renderer
-    const renderTaskRow = (task: Task, depth: number = 0) => {
+    const renderTaskRow = (task: Task, depth: number = 0): JSX.Element | null => {
         const children = getChildren(task.id);
         const hasChildren = children.length > 0 || task.type === 'project';
         const isExpanded = expandedIds.has(task.id);
@@ -182,8 +184,8 @@ export const TaskListView = ({ tasks, resources, onEditTask, isConnected }: Task
                         <div className="flex items-center gap-2">
                             {getStatusIcon(task.progress, task.type)}
                             <span className={`text-xs font-semibold px-2 py-1 rounded-full whitespace-nowrap ${task.type === 'project' ? 'bg-indigo-100 text-indigo-700' :
-                                    task.progress === 100 ? 'bg-green-100 text-green-700' :
-                                        task.progress > 0 ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600'
+                                task.progress === 100 ? 'bg-green-100 text-green-700' :
+                                    task.progress > 0 ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600'
                                 }`}>
                                 {getStatusText(task.progress, task.type)}
                             </span>
@@ -240,7 +242,7 @@ export const TaskListView = ({ tasks, resources, onEditTask, isConnected }: Task
     };
 
     // Flat list for search results
-    const renderFlatList = () => {
+    const renderFlatList = (): JSX.Element | null => {
         const filtered = tasks.filter(t => t.name.toLowerCase().includes(filter.toLowerCase()));
         if (filtered.length === 0) {
             return (

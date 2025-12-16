@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { Client, ClientBudget } from '../types/client';
 import { Plus, Search, Building2, TrendingUp, Wallet, Target, ChevronDown, ChevronRight, Trash2 } from 'lucide-react';
 
+import { AppUser } from '../types/auth';
+
 interface ClientsViewProps {
     clients: Client[];
     onCreateClient: (client: Client) => void;
@@ -10,9 +12,10 @@ interface ClientsViewProps {
     currentFiscalYear: string;
     onFiscalYearChange: (fy: string) => void;
     onSelectClient: (clientId: string) => void;
+    currentUser?: AppUser | null;
 }
 
-export const ClientsView = ({ clients, onCreateClient, onUpdateClient, onDeleteClient, currentFiscalYear, onFiscalYearChange, onSelectClient }: ClientsViewProps) => {
+export const ClientsView = ({ clients, onCreateClient, onUpdateClient, onDeleteClient, currentFiscalYear, onFiscalYearChange, onSelectClient, currentUser }: ClientsViewProps) => {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
 

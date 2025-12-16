@@ -44,6 +44,7 @@ export interface Project {
     description?: string;
     startDate: Date;
     createdAt: Date;
+    ownerId: string; // User UID
     clientId?: string; // Link to Client
     // Financial Fields
     grossValue?: number; // Valor Bruto de Venda
