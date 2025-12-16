@@ -3,7 +3,7 @@ import "gantt-task-react/dist/index.css";
 import { Task } from '../types';
 import React, { useMemo, useState, useEffect } from 'react';
 import { checkIsHoliday } from '../lib/utils';
-import { Plus, Minus, ChevronLeft, ChevronRight, GripVertical, Trash2, Smartphone, Minimize2, ZoomOut, ZoomIn } from 'lucide-react';
+import { Plus, Minus, ChevronLeft, ChevronRight, GripVertical, Trash2, Smartphone, Minimize2, ZoomOut, ZoomIn, PanelLeftClose, PanelLeftOpen, FolderOpen, FolderClosed, BarChart3 } from 'lucide-react';
 import {
     DndContext,
     closestCenter,
@@ -212,16 +212,18 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
     const [isCompact, setIsCompact] = useState(false);
     const [view, setView] = useState<ViewMode>(ViewMode.Day);
     const [collapsedTaskIds, setCollapsedTaskIds] = useState<string[]>([]);
+    const [showTaskList, setShowTaskList] = useState(true);
+    const [isSuperCompact, setIsSuperCompact] = useState(false);
     const initialScrollDone = React.useRef(false);
 
+    const collapsedInitialized = React.useRef(false);
+
     useEffect(() => {
-        if (tasks.length > 0) {
-            console.log("DEBUG GANTT TASKS:", tasks.slice(0, 10).map(t => ({
-                id: t.id,
-                name: t.name,
-                parent: t.parent,
-                type: t.type
-            })));
+        if (tasks.length > 0 && !collapsedInitialized.current) {
+            // Default: Auto-collapse all parent tasks on load
+            const parentIds = Array.from(new Set(tasks.filter(t => tasks.some(sub => sub.parent === t.id)).map(t => t.id)));
+            setCollapsedTaskIds(parentIds);
+            collapsedInitialized.current = true;
         }
     }, [tasks]);
 
@@ -638,31 +640,49 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
             let styles = t.styles;
             if (!styles) {
                 if (isDelayed) {
-                    styles = { progressColor: '#dc2626', backgroundColor: '#fca5a5' };
+                    styles = { progressColor: '#dc2626', backgroundColor: '#fca5a5', backgroundSelectedColor: '#fecaca' };
+                } else if (t.progress === 100) {
+                    styles = { progressColor: '#10b981', backgroundColor: '#dcfce7', backgroundSelectedColor: '#bbf7d0' };
+                } else if (t.type === 'project') {
+                    styles = { progressColor: '#4f46e5', backgroundColor: '#e0e7ff', backgroundSelectedColor: '#c7d2fe' };
                 } else {
-                    styles = {
-                        progressColor: displayType === 'project' ? '#f59e0b' : '#3b82f6',
-                        backgroundColor: displayType === 'project' ? '#fcd34d' : '#60a5fa'
-                    };
+                    styles = { progressColor: '#3b82f6', backgroundColor: '#eef2ff', backgroundSelectedColor: '#dbeafe' };
                 }
-            } else if (isDelayed) {
-                styles = { ...styles, progressColor: '#dc2626', backgroundColor: '#fca5a5' };
             }
 
             return {
                 start: new Date(t.start),
                 end: new Date(t.end),
-                name: `${t.name} (${Math.round(t.progress || 0)}%)`,
+                name: t.name,
                 id: t.id,
                 type: displayType,
                 progress: t.progress,
-                isDisabled: t.isDisabled ?? false,
+                isDisabled: false,
                 styles: styles,
                 project: t.parent || undefined,
-                dependencies: t.dependencies?.filter(depId => tasks.some(task => task.id === depId)),
+                dependencies: t.dependencies || [],
                 hideChildren: collapsedTaskIds.includes(t.id)
             };
         });
+
+        // Add Dummy Task to extend view to 2035 for Annual view
+        if (view === ViewMode.Year) {
+            mappedTasks.push({
+                start: new Date('2035-01-01'),
+                end: new Date('2035-12-31'),
+                name: "",
+                id: "dummy-extender-2035",
+                type: 'task',
+                progress: 0,
+                isDisabled: true,
+                styles: { backgroundColor: 'transparent', backgroundSelectedColor: 'transparent', progressColor: 'transparent' },
+                hideChildren: false,
+                project: undefined,
+                dependencies: []
+            });
+        }
+
+
 
         // 2. Build Parent Map for fast lookup
         const parentMap = new Map<string, string | null>();
@@ -738,9 +758,10 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
     };
 
     // --- View Configuration ---
-    const rowHeight = isCompact ? 30 : 40;
-    const columnWidth = isCompact ? 40 : 65;
-    const listCellWidth = isCompact ? "180px" : "280px";
+    const effectiveCompact = isCompact || isSuperCompact; // Logic helper
+    const rowHeight = isSuperCompact ? 24 : (isCompact ? 30 : 40); // 24px is very tight
+    const columnWidth = view === ViewMode.Year ? 130 : (isSuperCompact ? 30 : (isCompact ? 40 : 65));
+    const listCellWidth = effectiveCompact ? "180px" : "280px";
 
     // Landscape specific CSS to ensure scroll works and fonts are small
     const landscapeCss = `
@@ -782,7 +803,54 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
             {/* Toolbar Header */}
             <div className={`flex items-center justify-between p-4 border-b border-gray-100 bg-gray-50 flex-shrink-0 ${isLandscapeMode ? 'px-8 py-2 h-14' : ''}`}>
                 <div className="flex items-center gap-2">
-                    <h3 className={`font-bold text-gray-700 whitespace-nowrap ${isCompact ? 'text-sm' : ''}`}>Cronograma</h3>
+                    <h3 className={`font-bold text-gray-700 whitespace-nowrap ${isCompact || isSuperCompact ? 'text-sm' : ''}`}>Cronograma</h3>
+
+                    {/* Task List Toggle */}
+                    <button
+                        onClick={() => setShowTaskList(!showTaskList)}
+                        className={`hidden lg:flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold transition-colors ml-2 shadow-sm
+                            ${!showTaskList
+                                ? 'bg-indigo-600 text-white hover:bg-indigo-700'
+                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                        title={showTaskList ? "Ocultar Lista" : "Mostrar Lista"}
+                    >
+                        <BarChart3 size={16} className={showTaskList ? "text-indigo-600" : "text-current"} />
+                    </button>
+
+                    {/* Super Compact Mode Toggle */}
+                    <button
+                        onClick={() => setIsSuperCompact(!isSuperCompact)}
+                        className={`hidden lg:flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold transition-colors ml-2 shadow-sm
+                            ${isSuperCompact
+                                ? 'bg-indigo-600 text-white hover:bg-indigo-700'
+                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                        title={isSuperCompact ? "Modo Normal" : "Modo Super Compacto"}
+                    >
+                        {isSuperCompact ? <ZoomIn size={14} /> : <ZoomOut size={14} />}
+                        <span className="hidden xl:inline">{isSuperCompact ? "Normal" : "Compacto"}</span>
+                    </button>
+
+                    {/* Expand/Collapse All Buttons */}
+                    <div className="flex bg-gray-100 rounded-lg p-1 ml-2">
+                        <button
+                            onClick={() => setCollapsedTaskIds([])}
+                            className="p-1 hover:bg-white rounded transition-colors shadow-sm"
+                            title="Expandir Tudo"
+                        >
+                            <Plus size={16} className="text-green-600" />
+                        </button>
+                        <button
+                            onClick={() => {
+                                // Collapse all tasks that are parents
+                                const parentIds = Array.from(new Set(tasks.filter(t => tasks.some(sub => sub.parent === t.id)).map(t => t.id)));
+                                setCollapsedTaskIds(parentIds);
+                            }}
+                            className="p-1 hover:bg-white rounded transition-colors shadow-sm ml-1"
+                            title="Recolher Tudo"
+                        >
+                            <Minus size={16} className="text-red-600" />
+                        </button>
+                    </div>
 
                     {/* Mobile Landscape Toggle Button */}
                     <button
@@ -792,17 +860,7 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                                 ? 'bg-indigo-600 text-white hover:bg-indigo-700'
                                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
                     >
-                        {isLandscapeMode ? (
-                            <>
-                                <Minimize2 size={14} />
-                                <span className="hidden">Voltar</span>
-                            </>
-                        ) : (
-                            <>
-                                <Smartphone size={14} className="rotate-90" />
-                                <span className="hidden">Tela Cheia</span>
-                            </>
-                        )}
+                        <BarChart3 size={16} className={isLandscapeMode ? "text-white" : "text-indigo-600"} />
                     </button>
 
                     {/* Manual Zoom Toggle in Landscape */}
@@ -837,6 +895,12 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                         >
                             Mês
                         </button>
+                        <button
+                            onClick={() => setView(ViewMode.Year)}
+                            className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${view === ViewMode.Year ? 'bg-white shadow text-indigo-600' : 'text-gray-500 hover:text-gray-900'}`}
+                        >
+                            Ano
+                        </button>
                     </div>
 
 
@@ -859,12 +923,12 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                         locale="pt-BR"
                         onDateChange={handleDateChange}
                         onProgressChange={handleProgressChange}
-                        listCellWidth={listCellWidth}
+                        listCellWidth={showTaskList ? listCellWidth : ""}
                         columnWidth={columnWidth}
                         rowHeight={rowHeight}
                         barFill={55}
-                        ganttHeight={window.innerWidth - (isCompact ? 56 : 65)}
-                        TaskListTable={(props) => (
+                        ganttHeight={window.innerWidth - (effectiveCompact ? 56 : 65)}
+                        TaskListTable={!showTaskList ? () => <></> : (props) => (
                             <div className="font-sans text-sm border-r border-gray-200 bg-white">
                                 {props.tasks.filter(t => t.id !== 'gantt-spacer').map(t => {
                                     const original = tasks.find(orig => orig.id === t.id);
@@ -881,7 +945,7 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                                             onIndent={onIndent}
                                             onOutdent={onOutdent}
                                             onDeleteTask={onDeleteTask}
-                                            isCompact={isCompact}
+                                            isCompact={effectiveCompact}
                                             onToggleCollapse={toggleTaskCollapse}
                                             isCollapsed={collapsedTaskIds.includes(t.id)}
                                         />
@@ -889,18 +953,18 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                                 })}
                             </div>
                         )}
-                        TaskListHeader={({ headerHeight }) => (
+                        TaskListHeader={!showTaskList ? () => <></> : ({ headerHeight }) => (
                             <div
                                 className="flex items-center bg-gray-50 border-b border-r border-gray-200 font-bold text-gray-500 uppercase tracking-wider"
-                                style={{ height: headerHeight, fontSize: isCompact ? '10px' : '12px' }}
+                                style={{ height: headerHeight, fontSize: effectiveCompact ? '10px' : '12px' }}
                             >
                                 <div className="px-4 flex-1 border-r border-gray-200 h-full flex items-center" style={{ width: listCellWidth, minWidth: listCellWidth }}>
                                     Tarefa
                                 </div>
-                                <div className="px-4 border-r border-gray-200 h-full flex items-center justify-center" style={{ width: isCompact ? '80px' : '100px', minWidth: isCompact ? '80px' : '100px' }}>
+                                <div className="px-4 border-r border-gray-200 h-full flex items-center justify-center" style={{ width: effectiveCompact ? '80px' : '100px', minWidth: effectiveCompact ? '80px' : '100px' }}>
                                     Início
                                 </div>
-                                <div className="px-4 h-full flex items-center justify-center" style={{ width: isCompact ? '80px' : '100px', minWidth: isCompact ? '80px' : '100px' }}>
+                                <div className="px-4 h-full flex items-center justify-center" style={{ width: effectiveCompact ? '80px' : '100px', minWidth: effectiveCompact ? '80px' : '100px' }}>
                                     Fim
                                 </div>
                             </div>
@@ -918,12 +982,12 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                             locale="pt-BR"
                             onDateChange={handleDateChange}
                             onProgressChange={handleProgressChange}
-                            listCellWidth={listCellWidth}
+                            listCellWidth={showTaskList ? listCellWidth : ""}
                             columnWidth={columnWidth}
                             rowHeight={rowHeight}
                             barFill={55}
                             ganttHeight={500}
-                            TaskListTable={(props) => (
+                            TaskListTable={!showTaskList ? () => <></> : (props) => (
                                 <div className="font-sans text-sm border-r border-gray-200 bg-white">
                                     <SortableContext
                                         items={props.tasks.filter(t => t.id !== 'gantt-spacer').map(t => t.id)}
@@ -945,7 +1009,7 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                                                     onIndent={onIndent}
                                                     onOutdent={onOutdent}
                                                     onDeleteTask={onDeleteTask}
-                                                    isCompact={isCompact}
+                                                    isCompact={effectiveCompact}
                                                     onToggleCollapse={toggleTaskCollapse}
                                                     isCollapsed={collapsedTaskIds.includes(t.id)}
                                                     hasChildren={hasChildren}
@@ -955,18 +1019,18 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                                     </SortableContext>
                                 </div>
                             )}
-                            TaskListHeader={({ headerHeight }) => (
+                            TaskListHeader={!showTaskList ? () => <></> : ({ headerHeight }) => (
                                 <div
                                     className="flex items-center bg-gray-50 border-b border-r border-gray-200 font-bold text-gray-500 uppercase tracking-wider"
-                                    style={{ height: headerHeight, fontSize: isCompact ? '10px' : '12px' }}
+                                    style={{ height: headerHeight, fontSize: effectiveCompact ? '10px' : '12px' }}
                                 >
                                     <div className="px-4 flex-1 border-r border-gray-200 h-full flex items-center" style={{ width: listCellWidth, minWidth: listCellWidth }}>
                                         Tarefa
                                     </div>
-                                    <div className="px-4 border-r border-gray-200 h-full flex items-center justify-center" style={{ width: isCompact ? '80px' : '100px', minWidth: isCompact ? '80px' : '100px' }}>
+                                    <div className="px-4 border-r border-gray-200 h-full flex items-center justify-center" style={{ width: effectiveCompact ? '80px' : '100px', minWidth: effectiveCompact ? '80px' : '100px' }}>
                                         Início
                                     </div>
-                                    <div className="px-4 h-full flex items-center justify-center" style={{ width: isCompact ? '80px' : '100px', minWidth: isCompact ? '80px' : '100px' }}>
+                                    <div className="px-4 h-full flex items-center justify-center" style={{ width: effectiveCompact ? '80px' : '100px', minWidth: effectiveCompact ? '80px' : '100px' }}>
                                         Fim
                                     </div>
                                 </div>

@@ -18,14 +18,9 @@ export const TaskListView = ({ tasks, resources, onEditTask, isConnected, curren
     const [filter, setFilter] = useState('');
     const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
-    // Initialize/Sync expanded state
-    useMemo(() => {
-        const initial = new Set<string>();
-        tasks.forEach(t => {
-            if (t.type === 'project') initial.add(t.id);
-        });
-        setExpandedIds(prev => prev.size === 0 ? initial : prev);
-    }, [tasks.length]);
+    // Initialize expanded state (Default: All Collapsed)
+    // Removed auto-expansion logic to keep initial view clean as requested.
+
 
     const toggleExpand = (id: string) => {
         const newSet = new Set(expandedIds);
@@ -293,7 +288,7 @@ export const TaskListView = ({ tasks, resources, onEditTask, isConnected, curren
     return (
         <div className="space-y-6 animate-in fade-in duration-300">
             <div className="flex justify-between items-center">
-                <div>
+                <div className="hidden md:block">
                     <h2 className="text-2xl font-bold text-gray-900">Lista Estruturada</h2>
                     <p className="text-gray-500">Visualização detalhada com métricas financeiras e de esforço.</p>
                 </div>

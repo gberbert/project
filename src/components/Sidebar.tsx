@@ -1,6 +1,6 @@
 
 import { useState, useMemo } from 'react';
-import { LayoutDashboard, Calendar, Users, Settings, PieChart, ChevronDown, ChevronRight, Folder, Building2, UserCircle } from 'lucide-react';
+import { LayoutDashboard, Calendar, Users, Settings, PieChart, ChevronDown, ChevronRight, Folder, Building2, UserCircle, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { appVersion } from '../version';
 import { Client } from '../types/client';
 import { Project } from '../types';
@@ -25,7 +25,7 @@ interface SidebarProps {
     currentUser?: AppUser | null;
 }
 
-const MenuItemComponent = ({ item, activeView, onNavigate, level = 0 }: { item: MenuItem, activeView: string, onNavigate: (v: string) => void, level?: number }) => {
+const MenuItemComponent = ({ item, activeView, onNavigate, level = 0, isCollapsed = false }: { item: MenuItem, activeView: string, onNavigate: (v: string) => void, level?: number, isCollapsed?: boolean }) => {
     const [isExpanded, setIsExpanded] = useState(item.isOpen || false);
 
     // Check if this item is active or has active children
@@ -46,7 +46,7 @@ const MenuItemComponent = ({ item, activeView, onNavigate, level = 0 }: { item: 
             ? "text-slate-200"
             : "text-slate-400 hover:text-white hover:bg-slate-800";
 
-    const paddingLeft = level * 12 + 12; // px
+    const paddingLeft = isCollapsed ? 12 : level * 12 + 12; // px
 
     const handleClick = () => {
         if (item.children) {
@@ -65,18 +65,23 @@ const MenuItemComponent = ({ item, activeView, onNavigate, level = 0 }: { item: 
         <div className="w-full">
             <button
                 onClick={handleClick}
-                className={`${baseClasses} ${activeClasses}`}
+                className={`${baseClasses} ${activeClasses} ${isCollapsed ? 'justify-center' : ''}`}
                 style={{ paddingLeft: `${paddingLeft}px` }}
+                title={isCollapsed ? item.label : undefined}
             >
                 <item.icon size={20} className={`shrink-0 ${isActive ? 'text-indigo-400' : ''}`} />
-                <span className="ml-3 font-medium text-sm truncate flex-1 text-left">{item.label}</span>
-                {item.children && (
-                    <span className="ml-2">
-                        {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                    </span>
+                {!isCollapsed && (
+                    <>
+                        <span className="ml-3 font-medium text-sm truncate flex-1 text-left animate-in fade-in zoom-in-95 duration-200">{item.label}</span>
+                        {item.children && (
+                            <span className="ml-2">
+                                {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                            </span>
+                        )}
+                    </>
                 )}
             </button>
-            {item.children && isExpanded && (
+            {item.children && isExpanded && !isCollapsed && (
                 <div className="overflow-hidden transition-all duration-300">
                     {item.children.map((child, idx) => (
                         <MenuItemComponent
@@ -85,6 +90,7 @@ const MenuItemComponent = ({ item, activeView, onNavigate, level = 0 }: { item: 
                             activeView={activeView}
                             onNavigate={onNavigate}
                             level={level + 1}
+                            isCollapsed={isCollapsed}
                         />
                     ))}
                 </div>
@@ -94,6 +100,7 @@ const MenuItemComponent = ({ item, activeView, onNavigate, level = 0 }: { item: 
 };
 
 export const Sidebar = ({ activeView, onNavigate, className = '', clients = [], projects = [], currentUser }: SidebarProps) => {
+    const [isCollapsed, setIsCollapsed] = useState(false);
 
     const menuStructure = useMemo<MenuItem[]>(() => {
         // 1. Dynamic Client Trees
@@ -105,7 +112,6 @@ export const Sidebar = ({ activeView, onNavigate, className = '', clients = [], 
             const projectItems: MenuItem[] = clientProjects.map(project => ({
                 label: project.name,
                 icon: Folder,
-                // isOpen: false, // State handled in component usually, but we can pass initial
                 children: [
                     { id: `project_${project.id}_dashboard`, icon: LayoutDashboard, label: 'Relatório Operacional' },
                     { id: `project_${project.id}_gantt`, icon: Calendar, label: 'Relatório Tático-Gerencial' }
@@ -115,7 +121,6 @@ export const Sidebar = ({ activeView, onNavigate, className = '', clients = [], 
             return {
                 label: client.name,
                 icon: Building2,
-                // isOpen: false,
                 children: [
                     { id: `client_${client.id}_reports`, icon: PieChart, label: 'Relatório Estratégico (Portfólio)' },
                     { id: `client_${client.id}_my_projects`, icon: Settings, label: 'Gerenciar Projetos' },
@@ -124,42 +129,63 @@ export const Sidebar = ({ activeView, onNavigate, className = '', clients = [], 
             };
         });
 
+        const clientsFolder: MenuItem = {
+            label: 'Clientes',
+            icon: UserCircle,
+            // If any client or descendant is active, this folder will auto-expand via component logic
+            children: [
+                {
+                    label: 'Visão Geral / Gerenciar',
+                    id: 'clients_manage',
+                    icon: Settings
+                },
+                ...clientTrees
+            ]
+        }
+
         // 2. Main Menu Structure
         return [
-            {
-                label: 'Clientes',
-                id: 'clients_manage',
-                icon: UserCircle,
-                // isOpen: false,
-            },
-            ...clientTrees,
+            clientsFolder,
             { id: 'team', icon: Users, label: 'Equipe' },
         ];
     }, [clients, projects]);
 
     return (
-        <aside className={`h-screen w-20 lg:w-64 bg-slate-900 text-white flex flex-col transition-all duration-300 flex-shrink-0 border-r border-slate-800 ${className}`}>
+        <aside className={`h-full bg-slate-900 text-white flex flex-col transition-all duration-300 flex-shrink-0 border-r border-slate-800 ${isCollapsed ? 'w-20' : 'w-20 lg:w-64'} ${className}`}>
             {/* Logo */}
-            <div className="h-16 flex items-center justify-center lg:justify-start lg:px-6 border-b border-slate-800 bg-slate-950/50 shrink-0">
-                <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center font-bold text-xl text-white shadow-lg shadow-indigo-500/20">A</div>
-                <span className="ml-3 font-bold text-lg hidden lg:block tracking-tight text-white">Antigravity</span>
+            <div className={`h-16 flex items-center ${isCollapsed ? 'justify-center' : 'justify-center lg:justify-between lg:px-6'} border-b border-slate-800 bg-slate-950/50 shrink-0 relative group`}>
+                <div className="flex items-center">
+                    <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center font-bold text-xl text-white shadow-lg shadow-indigo-500/20">A</div>
+                    {!isCollapsed && <span className="ml-3 font-bold text-lg hidden lg:block tracking-tight text-white animate-in fade-in slide-in-from-left-2">Antigravity</span>}
+                </div>
+
+                {/* Collapse Toggle (Desktop Only) */}
+                <button
+                    onClick={() => setIsCollapsed(!isCollapsed)}
+                    className={`absolute -right-3 top-1/2 -translate-y-1/2 bg-slate-800 text-slate-400 p-1 rounded-full border border-slate-700 hover:text-white hover:bg-slate-700 transition-all z-10 hidden lg:flex ${isCollapsed ? '-right-3' : 'opacity-0 group-hover:opacity-100'}`}
+                    title={isCollapsed ? "Expandir Menu" : "Recolher Menu"}
+                >
+                    {isCollapsed ? <ChevronsRight size={14} /> : <ChevronsLeft size={14} />}
+                </button>
             </div>
 
             {/* User Info (Mini) */}
             {currentUser && (
-                <div className="p-4 border-b border-slate-800 hidden lg:flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-xs font-bold border border-slate-600">
+                <div className={`p-4 border-b border-slate-800 hidden lg:flex items-center gap-3 ${isCollapsed ? 'justify-center' : ''}`}>
+                    <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-xs font-bold border border-slate-600 shrink-0">
                         {currentUser.displayName ? currentUser.displayName.charAt(0).toUpperCase() : 'U'}
                     </div>
-                    <div className="flex-1 overflow-hidden">
-                        <p className="text-sm font-medium truncate text-slate-200">{currentUser.displayName}</p>
-                        <p className="text-xs text-slate-500 truncate">{currentUser.email}</p>
-                    </div>
+                    {!isCollapsed && (
+                        <div className="flex-1 overflow-hidden animate-in fade-in slide-in-from-left-2">
+                            <p className="text-sm font-medium truncate text-slate-200">{currentUser.displayName}</p>
+                            <p className="text-xs text-slate-500 truncate">{currentUser.email}</p>
+                        </div>
+                    )}
                 </div>
             )}
 
             {/* Navigation */}
-            <nav className="flex-1 py-4 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-transparent">
+            <nav className="flex-1 py-4 pb-20 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-transparent">
                 <div className="space-y-1">
                     {menuStructure.map((item, index) => (
                         <MenuItemComponent
@@ -167,24 +193,26 @@ export const Sidebar = ({ activeView, onNavigate, className = '', clients = [], 
                             item={item}
                             activeView={activeView}
                             onNavigate={onNavigate}
+                            isCollapsed={isCollapsed}
                         />
                     ))}
                 </div>
             </nav>
 
             {/* Footer */}
-            <div className="p-4 border-t border-slate-800 bg-slate-950/30 shrink-0">
+            <div className={`p-4 border-t border-slate-800 bg-slate-950/30 shrink-0 ${isCollapsed ? 'flex justify-center' : ''}`}>
                 {currentUser?.role === 'master' && (
                     <button
                         onClick={() => onNavigate('settings')}
-                        className="flex items-center text-slate-400 hover:text-white transition-colors w-full justify-center lg:justify-start group p-2 rounded-lg hover:bg-slate-800"
+                        className={`flex items-center text-slate-400 hover:text-white transition-colors w-full ${isCollapsed ? 'justify-center' : 'justify-center lg:justify-start'} group p-2 rounded-lg hover:bg-slate-800`}
+                        title={isCollapsed ? "Configurações" : undefined}
                     >
                         <Settings size={20} className="group-hover:rotate-90 transition-transform duration-500" />
-                        <span className="ml-3 hidden lg:block font-medium">Configurações</span>
+                        {!isCollapsed && <span className="ml-3 hidden lg:block font-medium">Configurações</span>}
                     </button>
                 )}
                 <div className="text-xs text-slate-600 text-center mt-2 hidden lg:block font-mono">
-                    v{appVersion}
+                    {!isCollapsed && `v${appVersion}`}
                 </div>
             </div>
         </aside>
@@ -199,7 +227,7 @@ export const MobileMenu = (props: SidebarProps & { isOpen: boolean; onClose: () 
                 className={`fixed inset-0 bg-black/60 backdrop-blur-sm z-40 transition-opacity duration-300 lg:hidden ${isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
                 onClick={onClose}
             />
-            <div className={`fixed inset-y-0 left-0 z-50 w-72 bg-slate-900 transform transition-transform duration-300 lg:hidden ${isOpen ? 'translate-x-0' : '-translate-x-full'} shadow-2xl border-r border-slate-700`}>
+            <div className={`fixed inset-y-0 left-0 z-50 w-72 bg-slate-900 transform transition-transform duration-300 lg:hidden ${isOpen ? 'translate-x-0' : '-translate-x-full'} shadow-2xl border-r border-slate-700 h-[100dvh]`}>
                 <Sidebar
                     {...sidebarProps}
                     className="w-full h-full border-none"

@@ -233,6 +233,8 @@ function App() {
     const [selectedProjectId, setSelectedProjectId] = useState<string>('1');
     const [clientTasks, setClientTasks] = useState<Task[]>([]);
 
+
+
     useEffect(() => {
         const checkOnlineStatus = async () => {
             if (!navigator.onLine) {
@@ -1096,7 +1098,7 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
                 <main className="flex-1 p-8 overflow-y-auto">
 
                     {/* View Title Header */}
-                    <div className="flex justify-between items-end mb-6">
+                    <div className="flex flex-col md:flex-row md:justify-between md:items-end mb-6 gap-4 md:gap-0">
                         <div className="flex-1 mr-6">
                             <h1 className="text-2xl font-bold text-gray-900">
                                 {parsedViewType === 'team' ? 'Gestão da Equipe' :
@@ -1118,7 +1120,7 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
                                 const activeProject = projects.find(p => p.id === selectedProjectId);
                                 if (!activeProject) return null;
                                 return (
-                                    <div className="mt-3 w-full animate-in fade-in slide-in-from-top-2">
+                                    <div className="mt-3 w-full animate-in fade-in slide-in-from-top-2 hidden md:block">
                                         <div className="relative group">
                                             <textarea
                                                 value={activeProject.aiSummary || ''}
@@ -1148,7 +1150,7 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
                                 return (
                                     <>
                                         {proj?.aiConfidence && (
-                                            <div className={`px-3 py-2 rounded-lg text-xs font-bold border flex items-center gap-2 ${proj.aiConfidence > 0.8
+                                            <div className={`hidden md:flex px-3 py-2 rounded-lg text-xs font-bold border items-center gap-2 ${proj.aiConfidence > 0.8
                                                 ? 'bg-green-50 text-green-700 border-green-200'
                                                 : 'bg-orange-50 text-orange-700 border-orange-200'
                                                 }`}>
@@ -1175,10 +1177,11 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
                                         {(isAdmin || user?.canUseAI) && (
                                             <button
                                                 onClick={handleEstimateClick}
-                                                className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg flex items-center gap-2 font-medium shadow-lg shadow-indigo-100 transition-all hover:scale-105 active:scale-95"
+                                                className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2.5 rounded-lg flex items-center gap-2 font-medium shadow-lg shadow-indigo-100 transition-all hover:scale-105 active:scale-95 text-xs lg:text-sm"
+                                                title="Estimar com IA"
                                             >
-                                                <Sparkles size={18} />
-                                                Estimar com IA
+                                                <Sparkles size={16} />
+                                                Estimar
                                             </button>
                                         )}
                                     </>
@@ -1202,7 +1205,7 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
                             currentFiscalYear={currentFiscalYear}
                             onFiscalYearChange={setCurrentFiscalYear}
                             onSelectClient={(clientId) => {
-                                setCurrentView(`client_${clientId}_reports`);
+                                setCurrentView(`client_${clientId}_my_projects`);
                             }}
                         />
                     )}
@@ -1221,20 +1224,27 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
                                     }
                                 }}
                             />
-                            <div className="flex border-b border-gray-200 mb-6">
+                            <div className="flex items-end mb-6 overflow-x-auto no-scrollbar pl-1">
                                 <button
                                     onClick={() => setGanttTab('schedule')}
-                                    className={`px-6 py-3 font-medium text-sm transition-colors border-b-2 ${ganttTab === 'schedule' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                                    className={`px-4 py-2 lg:px-6 lg:py-3 text-xs lg:text-sm font-bold rounded-t-lg transition-all border border-b-0 relative ${ganttTab === 'schedule'
+                                        ? 'bg-white text-indigo-600 border-gray-200 shadow-[0_-2px_10px_rgba(0,0,0,0.02)] z-10 scale-105 origin-bottom'
+                                        : 'bg-gray-50 text-gray-400 border-transparent hover:bg-gray-100 -mr-2 lg:-mr-0'
+                                        }`}
                                 >
                                     Cronograma
                                 </button>
                                 <button
                                     onClick={() => setGanttTab('tasks')}
-                                    className={`px-6 py-3 font-medium text-sm transition-colors border-b-2 ${ganttTab === 'tasks' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                                    className={`px-4 py-2 lg:px-6 lg:py-3 text-xs lg:text-sm font-bold rounded-t-lg transition-all border border-b-0 relative ${ganttTab === 'tasks'
+                                        ? 'bg-white text-indigo-600 border-gray-200 shadow-[0_-2px_10px_rgba(0,0,0,0.02)] z-10 scale-105 origin-bottom'
+                                        : 'bg-gray-50 text-gray-400 border-transparent hover:bg-gray-100'
+                                        }`}
                                 >
-                                    Tarefas
+                                    Lista de Tarefas
                                 </button>
-                                {/* Button removed */}
+                                {/* Bottom border filler */}
+                                <div className="flex-1 border-b border-gray-200 h-px"></div>
                             </div>
                             {ganttTab === 'schedule' && (
                                 <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-[650px] flex flex-col mt-8">

@@ -63,11 +63,10 @@ export const ProjectSummary = ({ stats, project, onUpdateProject }: ProjectSumma
 
                 {/* AI Context moved to Header */}
 
-                {/* Bottom Row: Dense Metrics & Financial Controls */}
-                <div className="flex flex-wrap items-center justify-between gap-y-4 gap-x-8">
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
 
-                    {/* Project Health */}
-                    <div className="flex gap-6 border-r border-gray-100 pr-6">
+                    {/* Project Health - 5 Metrics */}
+                    <div className="grid grid-cols-2 min-[400px]:grid-cols-3 lg:flex lg:gap-6 gap-4 border-b lg:border-b-0 lg:border-r border-gray-100 pb-4 lg:pb-0 lg:pr-6 w-full lg:w-auto">
                         <CompactMetric
                             label="Estimado"
                             value={`R$ ${stats.totalCost.toLocaleString('pt-BR', { notation: 'compact' })}`}
@@ -100,21 +99,23 @@ export const ProjectSummary = ({ stats, project, onUpdateProject }: ProjectSumma
                             icon={TrendingUp}
                             colorClass={stats.spi && stats.spi < 1 ? 'text-red-600' : 'text-emerald-600'}
                         />
-                        <CompactMetric
-                            label="CPI (Custo)"
-                            value={stats.cpi?.toFixed(2) || '1.00'}
-                            subValue={stats.cpi && stats.cpi < 1 ? 'Estourado' : 'Ok'}
-                            subColorClass={stats.cpi && stats.cpi < 1 ? 'text-red-500' : 'text-emerald-600'}
-                            icon={Target}
-                            colorClass={stats.cpi && stats.cpi < 1 ? 'text-red-600' : 'text-emerald-600'}
-                        />
+                        <div className="col-span-1"> {/* Explicit wrapper to prevent layout quirks */}
+                            <CompactMetric
+                                label="CPI (Custo)"
+                                value={stats.cpi?.toFixed(2) || '1.00'}
+                                subValue={stats.cpi && stats.cpi < 1 ? 'Estourado' : 'Ok'}
+                                subColorClass={stats.cpi && stats.cpi < 1 ? 'text-red-500' : 'text-emerald-600'}
+                                icon={Target}
+                                colorClass={stats.cpi && stats.cpi < 1 ? 'text-red-600' : 'text-emerald-600'}
+                            />
+                        </div>
                     </div>
 
                     {/* Financial Controller (Dense) */}
                     {project && onUpdateProject && (
-                        <div className="flex items-center gap-4 flex-1 justify-end">
-                            <div className="flex items-center gap-3 bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-100">
-                                <div className="flex flex-col">
+                        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 flex-1 justify-end w-full lg:w-auto">
+                            <div className="flex w-full sm:w-auto items-center justify-between gap-3 bg-gray-50 px-3 py-2 rounded-lg border border-gray-100">
+                                <div className="flex flex-col items-center">
                                     <label className="text-[9px] font-bold text-gray-400 uppercase">Margem</label>
                                     <div className="flex items-center">
                                         <input
@@ -127,7 +128,7 @@ export const ProjectSummary = ({ stats, project, onUpdateProject }: ProjectSumma
                                     </div>
                                 </div>
                                 <div className="w-px h-6 bg-gray-200"></div>
-                                <div className="flex flex-col">
+                                <div className="flex flex-col items-center">
                                     <label className="text-[9px] font-bold text-gray-400 uppercase">Desvio</label>
                                     <div className="flex items-center">
                                         <input
@@ -140,7 +141,7 @@ export const ProjectSummary = ({ stats, project, onUpdateProject }: ProjectSumma
                                     </div>
                                 </div>
                                 <div className="w-px h-6 bg-gray-200"></div>
-                                <div className="flex flex-col">
+                                <div className="flex flex-col items-center">
                                     <label className="text-[9px] font-bold text-gray-400 uppercase">Imposto</label>
                                     <div className="flex items-center">
                                         <input
@@ -155,7 +156,7 @@ export const ProjectSummary = ({ stats, project, onUpdateProject }: ProjectSumma
                             </div>
 
                             {/* Investment Result */}
-                            <div className="flex flex-col items-end pl-4 border-l border-indigo-100">
+                            <div className="flex flex-row sm:flex-col justify-between sm:justify-center w-full sm:w-auto items-center sm:items-end pl-0 sm:pl-4 sm:border-l border-indigo-100">
                                 <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest flex items-center gap-1">
                                     <Calculator size={10} /> Investimento
                                 </span>
