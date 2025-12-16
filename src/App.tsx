@@ -370,16 +370,18 @@ function App() {
     }
 
 
-    const onAddTaskWrapper = async (newTask: Task) => {
+    const onAddTaskWrapper = async (newTask: Task, insertOverride?: string | null) => {
+        const targetId = insertOverride !== undefined ? (insertOverride || undefined) : insertAfterTaskId;
+
         if (!isConnected) {
-            addTask(newTask, insertAfterTaskId);
+            addTask(newTask, targetId);
             return;
         }
         try {
             await ProjectService.addTask(newTask);
         } catch (e) {
             console.error("Failed to add task", e);
-            addTask(newTask, insertAfterTaskId);
+            addTask(newTask, targetId);
         }
     };
 
@@ -880,6 +882,47 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
         }
     };
 
+    const handleSplitTask = async (originalTask: Task, factor: number) => {
+        if (factor < 2) return;
+
+        const totalDuration = countBusinessDays(originalTask.start, originalTask.end);
+        const newDurationDays = Math.max(1, Math.floor(totalDuration / factor));
+        const newEndDate = addBusinessDays(originalTask.start, newDurationDays);
+
+        // 2. Update Original Task (Part 1)
+        const updatedOriginal = {
+            ...originalTask,
+            name: `${originalTask.name} (Parte 1)`,
+            end: newEndDate
+        };
+        await onTaskChangeWrapper(updatedOriginal);
+
+        // 3. Create Copies
+        let previousId = originalTask.id;
+        for (let i = 2; i <= factor; i++) {
+            const newTask: Task = {
+                ...originalTask,
+                id: self.crypto.randomUUID(),
+                name: `${originalTask.name} (Parte ${i})`,
+                start: originalTask.start,
+                end: newEndDate,
+                progress: 0,
+                // Use fractional order to insert immediately after without reordering everything
+                // Assuming integer orders are used generally. Max 100 parts is safe with 0.001
+                order: (originalTask.order || 0) + (0.01 * (i - 1)),
+                dependencies: originalTask.dependencies ? [...originalTask.dependencies] : [],
+                styles: { ...originalTask.styles, progressColor: '#f97316', backgroundColor: '#f97316' }
+            };
+
+            // Pass previousId to insert specifically after the last part
+            // This ensures optimistic UI (offline) works correctly
+            await onAddTaskWrapper(newTask, previousId);
+            previousId = newTask.id;
+        }
+
+        setIsTaskModalOpen(false);
+    };
+
     return (
         <div className="flex h-screen bg-gray-50 overflow-hidden font-sans">
             <Sidebar
@@ -1081,7 +1124,7 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
                                         <GanttChart
                                             tasks={projectTasks}
                                             onTaskChange={onTaskChangeWrapper}
-                                            onEditTask={(task) => { setEditingTask(task); setIsTaskModalOpen(true); }}
+                                            onEditTask={(task) => { setEditingTask(task); setInsertAfterTaskId(undefined); setIsTaskModalOpen(true); }}
                                             onAddTask={handleCreateClick}
                                             onDeleteTask={handleDeleteTask}
                                             onReorderTasks={handleReorderTasks}
@@ -1095,7 +1138,7 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
                                 <TaskListView
                                     tasks={projectTasks}
                                     resources={resources}
-                                    onEditTask={(task) => { setEditingTask(task); setIsTaskModalOpen(true); }}
+                                    onEditTask={(task) => { setEditingTask(task); setInsertAfterTaskId(undefined); setIsTaskModalOpen(true); }}
                                     isConnected={isConnected}
                                 />
                             )}
@@ -1146,6 +1189,7 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
                     resources={resources}
                     onSave={handleSaveTask}
                     onCancel={() => setIsTaskModalOpen(false)}
+                    onSplit={handleSplitTask}
                 />
             )}
             <EstimateModal

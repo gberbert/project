@@ -21,6 +21,15 @@ const TASKS_COL = 'tasks';
 const RESOURCES_COL = 'resources';
 const CLIENTS_COL = 'clients';
 
+const sanitizeData = (data: any) => {
+    if (!data || typeof data !== 'object') return data;
+    const clean = { ...data };
+    Object.keys(clean).forEach(key => {
+        if (clean[key] === undefined) delete clean[key];
+    });
+    return clean;
+};
+
 export const ProjectService = {
     // --- Clients ---
     subscribeClients: (callback: (clients: Client[]) => void) => {
@@ -38,12 +47,12 @@ export const ProjectService = {
     },
 
     createClient: async (client: any) => {
-        return addDoc(collection(db, CLIENTS_COL), client);
+        return addDoc(collection(db, CLIENTS_COL), sanitizeData(client));
     },
 
     updateClient: async (clientId: string, updates: any) => {
         const ref = doc(db, CLIENTS_COL, clientId);
-        return updateDoc(ref, updates);
+        return updateDoc(ref, sanitizeData(updates));
     },
 
     deleteClient: async (clientId: string) => {
@@ -67,12 +76,12 @@ export const ProjectService = {
     },
 
     createProject: async (project: Omit<Project, 'id'>) => {
-        return addDoc(collection(db, PROJECTS_COL), project);
+        return addDoc(collection(db, PROJECTS_COL), sanitizeData(project));
     },
 
     updateProject: async (projectId: string, updates: Partial<Project>) => {
         const ref = doc(db, PROJECTS_COL, projectId);
-        return updateDoc(ref, updates);
+        return updateDoc(ref, sanitizeData(updates));
     },
 
     deleteProject: async (projectId: string) => {
@@ -102,18 +111,19 @@ export const ProjectService = {
     },
 
     addTask: async (task: Partial<Task>) => {
-        if (task.id) {
-            const taskRef = doc(db, TASKS_COL, task.id);
-            await setDoc(taskRef, task);
+        const cleanTask = sanitizeData(task);
+        if (cleanTask.id) {
+            const taskRef = doc(db, TASKS_COL, cleanTask.id);
+            await setDoc(taskRef, cleanTask);
             return taskRef;
         } else {
-            return addDoc(collection(db, TASKS_COL), task);
+            return addDoc(collection(db, TASKS_COL), cleanTask);
         }
     },
 
     updateTask: async (taskId: string, updates: Partial<Task>) => {
         const taskRef = doc(db, TASKS_COL, taskId);
-        return updateDoc(taskRef, updates);
+        return updateDoc(taskRef, sanitizeData(updates));
     },
 
     deleteTask: async (taskId: string) => {
@@ -134,7 +144,7 @@ export const ProjectService = {
         const batch = writeBatch(db);
         updates.forEach(({ id, data }) => {
             const ref = doc(db, TASKS_COL, id);
-            batch.update(ref, data);
+            batch.update(ref, sanitizeData(data));
         });
         return batch.commit();
     },
@@ -148,12 +158,12 @@ export const ProjectService = {
     },
 
     addResource: async (resource: Omit<Resource, 'id'>) => {
-        return addDoc(collection(db, RESOURCES_COL), resource);
+        return addDoc(collection(db, RESOURCES_COL), sanitizeData(resource));
     },
 
     updateResource: async (resourceId: string, updates: Partial<Resource>) => {
         const resRef = doc(db, RESOURCES_COL, resourceId);
-        return updateDoc(resRef, updates);
+        return updateDoc(resRef, sanitizeData(updates));
     },
 
     deleteResource: async (resourceId: string) => {

@@ -1,57 +1,45 @@
 import { Task, Resource } from '../types';
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { X, Plus, Link2, ArrowRightCircle, ArrowLeftCircle, Calendar as CalendarIcon, ChevronLeft, ChevronRight } from 'lucide-react';
+import { X, Plus, Link2, ArrowRightCircle, ArrowLeftCircle, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Columns, Copy } from 'lucide-react';
 import {
     format, startOfMonth, endOfMonth, eachDayOfInterval,
-    startOfWeek, endOfWeek, addMonths, subMonths,
-    isSameMonth, isSameDay, isWithinInterval, isBefore, isAfter, isWeekend, addDays
+    isSameMonth, isSameDay, isWithinInterval, isBefore, isAfter, isWeekend, addDays,
+    startOfWeek, endOfWeek, addMonths, subMonths
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { SearchableSelect } from './SearchableSelect';
 
 interface TaskFormProps {
     task?: Task;
-    allTasks: Task[];
     resources: Resource[];
+    allTasks: Task[];
     onSave: (task: Task) => void;
     onCancel: () => void;
+    onSplit?: (task: Task, factor: number) => void;
 }
 
-export const TaskForm = ({ task, allTasks, resources, onSave, onCancel }: TaskFormProps) => {
-    const defaultTask = {
-        name: '',
+export const TaskForm = ({ task, resources, allTasks, onSave, onCancel, onSplit }: TaskFormProps) => {
+    const [formData, setFormData] = useState<Partial<Task>>({
         progress: 0,
-        type: 'task' as const,
-        start: new Date(),
-        end: new Date(),
         dependencies: [],
-        resourceId: ''
-    };
+        type: 'task',
+        ...task
+    });
 
-    const [formData, setFormData] = useState<Partial<Task>>(task || defaultTask);
+    const [isCalendarOpen, setIsCalendarOpen] = useState(false);
+    const [selectionStep, setSelectionStep] = useState<'start' | 'end'>('start');
+    const [newDependencyId, setNewDependencyId] = useState<string>('');
+    const [viewDate, setViewDate] = useState(new Date());
+    const [parallelFactor, setParallelFactor] = useState(2);
+    const calendarRef = useRef<HTMLDivElement>(null);
 
+    // Initial Sync Effect
     useEffect(() => {
         if (task) {
-            // Ensure dependencies is always an array
-            setFormData({
-                ...task,
-                dependencies: task.dependencies || []
-            });
-        } else {
-            setFormData(defaultTask);
+            setFormData({ ...task, dependencies: task.dependencies || [] });
         }
     }, [task]);
 
-    const [newDependencyId, setNewDependencyId] = useState('');
-
-
-
-    const [isCalendarOpen, setIsCalendarOpen] = useState(false);
-    const [viewDate, setViewDate] = useState(new Date());
-    const calendarRef = useRef<HTMLDivElement>(null);
-    const [selectionStep, setSelectionStep] = useState<'start' | 'end'>('start');
-
-    // Realizado State
     const [isRealCalendarOpen, setIsRealCalendarOpen] = useState(false);
     const [viewRealDate, setViewRealDate] = useState(new Date());
     const realCalendarRef = useRef<HTMLDivElement>(null);
@@ -673,6 +661,47 @@ export const TaskForm = ({ task, allTasks, resources, onSave, onCancel }: TaskFo
                             </div>
                         </div>
                     </div>
+
+                    {/* Advanced Tools: Parallelism */}
+                    {task && onSplit && (
+                        <div className="pt-4 border-t border-gray-100 mt-6">
+                            <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                                <Columns size={16} className="text-orange-600" />
+                                Ferramentas Avançadas
+                            </h3>
+                            <div className="bg-orange-50 p-4 rounded-lg border border-orange-100">
+                                <p className="text-xs text-orange-700 mb-3 font-medium">
+                                    Paralelismo: Quebrar esta tarefa em múltiplas partes iguais executadas simultaneamente.
+                                </p>
+                                <div className="flex items-end gap-3">
+                                    <div className="w-32">
+                                        <label className="block text-xs font-medium text-gray-700 mb-1">Fator de Quebra</label>
+                                        <input
+                                            type="number"
+                                            min="2"
+                                            max="10"
+                                            value={parallelFactor}
+                                            onChange={(e) => setParallelFactor(Math.max(2, parseInt(e.target.value) || 2))}
+                                            className="w-full rounded-lg border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500 border p-2 text-sm"
+                                        />
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            if (parallelFactor < 2) return;
+                                            if (window.confirm(`ATENÇÃO: Isso irá dividir a tarefa atual em ${parallelFactor} tarefas paralelas, dividindo a duração total entre elas.\n\nDeseja continuar?`)) {
+                                                onSplit(formData as Task, parallelFactor);
+                                            }
+                                        }}
+                                        className="flex-1 flex items-center justify-center gap-2 bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors mb-[1px] shadow-sm"
+                                    >
+                                        <Copy size={16} />
+                                        Aplicar Paralelismo
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                 </form >
 

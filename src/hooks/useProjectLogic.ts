@@ -32,6 +32,7 @@ export const useProjectLogic = (initialTasks: Task[]) => {
                 // 3. Handle Additions (Append new tasks)
                 const newTasks = initialTasks.filter(t => !prevIds.has(t.id));
                 merged = [...merged, ...newTasks];
+                merged.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 
                 return recalculateGantt(merged);
             });
