@@ -4,7 +4,7 @@ import { Project } from '../types';
 
 interface MyProjectsViewProps {
     projects: Project[];
-    onCreateProject: (project: Omit<Project, 'id' | 'createdAt'>) => void;
+    onCreateProject: (project: Omit<Project, 'id' | 'createdAt' | 'ownerId'>) => void;
     onUpdateProject: (project: Project) => void;
     onSelectProject: (projectId: string) => void;
     onDeleteProject: (projectId: string) => void;

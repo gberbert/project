@@ -269,13 +269,13 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
         const container = containerRef.current;
         if (!container) return;
 
-        let observer: MutationObserver;
+        let observer: MutationObserver | undefined;
 
         const applyStyles = () => {
             if (observer) observer.disconnect();
 
             const svgs = Array.from(container.querySelectorAll('svg'));
-            let todayScrollTarget: { x: number, element: Element } | null = null;
+            let todayScrollTarget: { x: number; element: Element } | null = null;
 
             // Determine View Start (Earliest of Tasks or Today)
             let viewStart = new Date();
@@ -309,7 +309,7 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
             let anchorDate: Date | null = null;
             let anchorX = 0;
 
-            svgs.forEach(svg => {
+            for (const svg of svgs) {
                 const textElements = Array.from(svg.querySelectorAll('text'));
 
                 // Initial Month/Year for this SVG (Defaults to View Start)
@@ -463,10 +463,10 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                         }
                     }
                 });
-            });
+            }
 
             // Phase 2: Render Highlights (All SVGs)
-            svgs.forEach(svg => {
+            for (const svg of svgs) {
                 // Clear Old Groups
                 const oldBg = svg.querySelector('#custom-backgrounds');
                 if (oldBg) oldBg.remove();
@@ -549,7 +549,7 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                         bgGroup.appendChild(rect);
                     }
                 });
-            });
+            }
 
             // Auto-Scroll Logic
             if (!initialScrollDone.current) {
@@ -569,15 +569,15 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                         scrollContainer.scrollTo({ left: 0, behavior: 'smooth' });
                         initialScrollDone.current = true;
                     } else if (todayScrollTarget) {
-                        const center = todayScrollTarget.x - (scrollContainer.clientWidth / 2);
+                        const center = (todayScrollTarget as any).x - (scrollContainer.clientWidth / 2);
                         if (Math.abs(scrollContainer.scrollLeft - center) > 10) {
                             scrollContainer.scrollTo({ left: Math.max(0, center), behavior: 'smooth' });
                         }
                         initialScrollDone.current = true;
-                    } else if (anchorDate && view !== ViewMode.Week) {
+                    } else if (anchorDate && (view as any) !== ViewMode.Week) {
                         let offset = 0;
                         // Use non-null assertion or local variable to satisfy TS
-                        const ad = anchorDate;
+                        const ad = anchorDate as Date;
                         if (view === ViewMode.Month) {
                             const months = (today.getFullYear() - ad.getFullYear()) * 12 + (today.getMonth() - ad.getMonth());
                             offset = months * columnWidth;

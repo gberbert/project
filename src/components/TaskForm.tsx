@@ -308,9 +308,9 @@ export const TaskForm = ({ task, resources, allTasks, onSave, onCancel, onSplit 
                                         </div>
                                         <div className="grid grid-cols-7 gap-1">
                                             {calendarDays.map((day, idx) => {
-                                                const isStart = formData.start ? isSameDay(day, formData.start) : false;
-                                                const isEnd = formData.end ? isSameDay(day, formData.end) : false;
-                                                const inRange = formData.start && formData.end ? isWithinInterval(day, { start: formData.start!, end: formData.end! }) : false;
+                                                const isStart = formData.start ? isSameDay(day, formData.start as Date) : false;
+                                                const isEnd = formData.end ? isSameDay(day, formData.end as Date) : false;
+                                                const inRange = formData.start && formData.end ? isWithinInterval(day, { start: formData.start as Date, end: formData.end as Date }) : false;
                                                 const isCurrentMonth = isSameMonth(day, viewDate);
 
                                                 return (
@@ -323,8 +323,8 @@ export const TaskForm = ({ task, resources, allTasks, onSave, onCancel, onSplit 
                                                             ${!isCurrentMonth ? 'text-gray-300' : 'text-gray-700 hover:bg-indigo-50'}
                                                             ${inRange && !isStart && !isEnd ? 'bg-indigo-50 text-indigo-700 rounded-none' : ''}
                                                             ${(isStart || isEnd) ? 'bg-indigo-600 text-white shadow-md z-10 font-bold' : ''}
-                                                            ${isStart && formData.end && !isSameDay(formData.start, formData.end) ? 'rounded-r-none' : ''}
-                                                            ${isEnd && formData.start && !isSameDay(formData.start, formData.end) ? 'rounded-l-none' : ''}
+                                                            ${isStart && formData.end && formData.start && !isSameDay(formData.start, formData.end) ? 'rounded-r-none' : ''}
+                                                            ${isEnd && formData.start && formData.end && !isSameDay(formData.start, formData.end) ? 'rounded-l-none' : ''}
                                                         `}
                                                     >
                                                         {format(day, 'd')}
@@ -389,8 +389,8 @@ export const TaskForm = ({ task, resources, allTasks, onSave, onCancel, onSplit 
                                                             ${!isCurrentMonth ? 'text-gray-300' : 'text-gray-700 hover:bg-indigo-50'}
                                                             ${inRange && !isStart && !isEnd ? 'bg-indigo-50 text-indigo-700 rounded-none' : ''}
                                                             ${(isStart || isEnd) ? 'bg-indigo-600 text-white shadow-md z-10 font-bold' : ''}
-                                                            ${isStart && formData.realEnd && !isSameDay(formData.realStart, formData.realEnd) ? 'rounded-r-none' : ''}
-                                                            ${isEnd && formData.realStart && !isSameDay(formData.realStart, formData.realEnd) ? 'rounded-l-none' : ''}
+                                                            ${isStart && formData.realEnd && formData.realStart && !isSameDay(formData.realStart, formData.realEnd) ? 'rounded-r-none' : ''}
+                                                            ${isEnd && formData.realStart && formData.realEnd && !isSameDay(formData.realStart, formData.realEnd) ? 'rounded-l-none' : ''}
                                                         `}
                                                     >
                                                         {format(day, 'd')}
@@ -526,7 +526,7 @@ export const TaskForm = ({ task, resources, allTasks, onSave, onCancel, onSplit 
                                             while (p && p !== 'auto-id-1') {
                                                 depth++;
                                                 const parent = allTasks.find(pt => pt.id === p);
-                                                p = parent ? parent.parent : undefined;
+                                                p = parent && parent.parent ? parent.parent : null;
                                             }
 
                                             return (

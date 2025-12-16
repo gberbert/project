@@ -242,7 +242,7 @@ export const TaskListView = ({ tasks, resources, onEditTask, isConnected, curren
     };
 
     // Flat list for search results
-    const renderFlatList = (): JSX.Element | null => {
+    const renderFlatList = (): React.ReactNode => {
         const filtered = tasks.filter(t => t.name.toLowerCase().includes(filter.toLowerCase()));
         if (filtered.length === 0) {
             return (
