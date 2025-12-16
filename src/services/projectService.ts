@@ -8,7 +8,8 @@ import {
     query,
     where,
     getDocs,
-    writeBatch
+    writeBatch,
+    setDoc
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { Project, Task, Resource } from '../types';
@@ -100,8 +101,14 @@ export const ProjectService = {
         });
     },
 
-    addTask: async (task: Omit<Task, 'id'>) => {
-        return addDoc(collection(db, TASKS_COL), task);
+    addTask: async (task: Partial<Task>) => {
+        if (task.id) {
+            const taskRef = doc(db, TASKS_COL, task.id);
+            await setDoc(taskRef, task);
+            return taskRef;
+        } else {
+            return addDoc(collection(db, TASKS_COL), task);
+        }
     },
 
     updateTask: async (taskId: string, updates: Partial<Task>) => {

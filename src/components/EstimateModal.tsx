@@ -116,6 +116,7 @@ export const EstimateModal = ({ isOpen, onClose, onApplyEstimate, clientContext,
                     estimateData: estimate
                 };
                 setMessages(prev => [...prev, aiMsg]);
+                setIsApplying(false);
                 setIsLoading(false);
                 return;
             }

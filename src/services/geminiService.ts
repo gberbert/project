@@ -49,13 +49,15 @@ Use o campo "category" no JSON com um destes valores exatos:
 3. **'testing'**: Para QA, testes unitários, testes de integração, bug fixes, homologação.
 4. **'rollout'**: Para deploy, treinamento, documentação final, lançamento e acompanhamento (Go-live).
 
-DIRETRIZES DE LÓGICA SDLC (CRÍTICO - NÃO ALUCINAR DATAS):
-1. **SEQUENCIALIDADE RÍGIDA**:
-   - 'development' SÓ começa após o grosso do 'planning'.
-   - 'testing' SÓ COMEÇA APÓS o término do 'development' relacionado.
-   - 'rollout' SÓ APÓS 'testing'.
-2. **DEPENDÊNCIAS**:
-   - Use o campo 'dependencies' para amarrar logicamente as tarefas (ex: Teste depende de Dev).
+DIRETRIZES DE LÓGICA SDLC (CRÍTICO - MODELO CASCATA/WATERFALL RÍGIDO):
+1. **SEQUENCIALIDADE ESTRITA (ZERO OVERLAP)**:
+   - A fase de 'rollout' (Implantação, Treinamento, Produção) **JAMAIS** pode iniciar antes do fim COMPLETO da fase de 'testing'.
+   - O 'start_offset_days' da primeira tarefa de 'rollout' DEVE ser maior que ('start_offset' + 'duration') da última tarefa de 'testing'.
+   - NÃO paralelize Deploy/Docs com Homologação. Termine um, comece o outro.
+
+2. **DEPENDÊNCIAS MANDATÓRIAS**:
+   - A primeira tarefa de 'rollout' DEVE ter como dependência ('dependencies') a tarefa de "Aprovação de UAT/Homologação" da fase 'testing'.
+   - Garanta que a fase 'testing' inclua tempo para correção de bugs (Retestes) antes de liberar para Rollout.
 
 PROTOCOLO DE INTERAÇÃO (RIGOROSO):
 

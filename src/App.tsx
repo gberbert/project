@@ -372,8 +372,7 @@ function App() {
             return;
         }
         try {
-            const { id, ...taskData } = newTask;
-            await ProjectService.addTask(taskData);
+            await ProjectService.addTask(newTask);
         } catch (e) {
             console.error("Failed to add task", e);
             addTask(newTask, insertAfterTaskId);
@@ -793,10 +792,55 @@ function App() {
             } as Task;
         });
 
-        // 3. Merge & Add (Phases first)
-        const allNewTasks = [...phases, ...aiTasks];
+        // 3. Merge & Sort Logic for Visual Hierarchy
+        // Group children by their assigned parent ID
+        const childrenByParent: Record<string, Task[]> = {};
+        aiTasks.forEach(task => {
+            if (task.parent) {
+                if (!childrenByParent[task.parent]) childrenByParent[task.parent] = [];
+                childrenByParent[task.parent].push(task);
+            }
+        });
 
-        for (const task of allNewTasks) {
+        const orderedTasks: Task[] = [];
+        let currentOrder = 0;
+
+        // Iterate through Phases in order
+        for (const phase of phases) {
+
+            // 2. Add Phase Children (if any)
+            const children = childrenByParent[phase.id] || [];
+
+            // AUTOMATICALLY ADJUST PHASE DATES TO COVER CHILDREN
+            if (children.length > 0) {
+                let minStart = children[0].start;
+                let maxEnd = children[0].end;
+
+                children.forEach(child => {
+                    if (child.start < minStart) minStart = child.start;
+                    if (child.end > maxEnd) maxEnd = child.end;
+                });
+
+                phase.start = minStart;
+                phase.end = maxEnd;
+            }
+
+            // 1. Add Phase (Updated)
+            orderedTasks.push({ ...phase, order: currentOrder++ });
+
+            children.forEach(child => {
+                orderedTasks.push({ ...child, order: currentOrder++ });
+            });
+        }
+
+        // 3. Add any orphans (shouldn't exist with current logic, but safe fallback)
+        const orphanTasks = aiTasks.filter(t => !t.parent || !Object.values(phaseIds).includes(t.parent));
+        orphanTasks.forEach(orphan => {
+            orderedTasks.push({ ...orphan, order: currentOrder++ });
+        });
+
+        // 4. Save
+        for (const task of orderedTasks) {
             await onAddTaskWrapper(task);
         }
 

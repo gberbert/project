@@ -87,13 +87,21 @@ const SortableTaskRow = ({
     // Calculate Depth dynamically
     let depth = 0;
     if (originalTask) {
-        let current = originalTask;
-        const maxDepth = 10; // Safety break
-        while (current.parent && depth < maxDepth) {
-            const parent = allTasks.find(t => t.id === current.parent);
-            if (!parent) break;
-            depth++;
-            current = parent;
+        if (originalTask.parent) {
+            // Default to 1 if has parent but parent not found in list (fallback for visual nesting)
+            depth = 1;
+
+            let current = originalTask;
+            let computedDepth = 0;
+            const maxDepth = 10;
+
+            while (current.parent && computedDepth < maxDepth) {
+                const parent = allTasks.find(t => t.id === current.parent);
+                if (!parent) break;
+                computedDepth++;
+                current = parent;
+            }
+            if (computedDepth > 0) depth = computedDepth;
         }
     }
 
@@ -205,6 +213,17 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
     const [view, setView] = useState<ViewMode>(ViewMode.Day);
     const [collapsedTaskIds, setCollapsedTaskIds] = useState<string[]>([]);
     const initialScrollDone = React.useRef(false);
+
+    useEffect(() => {
+        if (tasks.length > 0) {
+            console.log("DEBUG GANTT TASKS:", tasks.slice(0, 10).map(t => ({
+                id: t.id,
+                name: t.name,
+                parent: t.parent,
+                type: t.type
+            })));
+        }
+    }, [tasks]);
 
     const toggleTaskCollapse = (taskId: string) => {
         setCollapsedTaskIds(prev => prev.includes(taskId)
@@ -557,11 +576,13 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                         initialScrollDone.current = true;
                     } else if (anchorDate && view !== ViewMode.Week) {
                         let offset = 0;
+                        // Use non-null assertion or local variable to satisfy TS
+                        const ad = anchorDate;
                         if (view === ViewMode.Month) {
-                            const months = (today.getFullYear() - anchorDate.getFullYear()) * 12 + (today.getMonth() - anchorDate.getMonth());
+                            const months = (today.getFullYear() - ad.getFullYear()) * 12 + (today.getMonth() - ad.getMonth());
                             offset = months * columnWidth;
                         } else {
-                            const days = Math.floor((today.getTime() - anchorDate.getTime()) / (1000 * 60 * 60 * 24));
+                            const days = Math.floor((today.getTime() - ad.getTime()) / (1000 * 60 * 60 * 24));
                             offset = days * columnWidth;
                         }
                         const targetX = anchorX + offset;
