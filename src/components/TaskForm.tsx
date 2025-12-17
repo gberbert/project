@@ -16,9 +16,10 @@ interface TaskFormProps {
     onSave: (task: Task) => void;
     onCancel: () => void;
     onSplit?: (task: Task, factor: number) => void;
+    forceLandscape?: boolean;
 }
 
-export const TaskForm = ({ task, resources, allTasks, onSave, onCancel, onSplit }: TaskFormProps) => {
+export const TaskForm = ({ task, resources, allTasks, onSave, onCancel, onSplit, forceLandscape = false }: TaskFormProps) => {
     const [formData, setFormData] = useState<Partial<Task>>({
         progress: 0,
         dependencies: [],
@@ -216,21 +217,21 @@ export const TaskForm = ({ task, resources, allTasks, onSave, onCancel, onSplit 
         };
     }, [formData, allTasks]);
 
-    const [isLandscapeMobile, setIsLandscapeMobile] = useState(false);
+    const [isPhysicalLandscape, setIsPhysicalLandscape] = useState(false);
 
     useEffect(() => {
         const checkLandscape = () => {
             // Mais robusto: Media Query para orientação E altura máxima (para não pegar desktops/tablets grandes)
             // max-height: 900px cobre a maioria dos celulares em landscape
             const mq = window.matchMedia("(orientation: landscape) and (max-height: 900px) and (max-width: 1024px)");
-            setIsLandscapeMobile(mq.matches);
+            setIsPhysicalLandscape(mq.matches);
         };
 
         checkLandscape();
 
         const mqListener = window.matchMedia("(orientation: landscape) and (max-height: 900px) and (max-width: 1024px)");
         // Modern browsers suggest addEventListener on MediaQueryList, but for safety with older React constructs:
-        const handler = (e: MediaQueryListEvent) => setIsLandscapeMobile(e.matches);
+        const handler = (e: MediaQueryListEvent) => setIsPhysicalLandscape(e.matches);
 
         if (mqListener.addEventListener) {
             mqListener.addEventListener("change", handler);
@@ -250,6 +251,9 @@ export const TaskForm = ({ task, resources, allTasks, onSave, onCancel, onSplit 
             window.removeEventListener('resize', checkLandscape);
         };
     }, []);
+
+    const isLandscapeMobile = isPhysicalLandscape || forceLandscape;
+    const shouldRotate = forceLandscape && !isPhysicalLandscape;
 
     const handleSubmit = (e?: React.FormEvent | React.MouseEvent) => {
         if (e) e.preventDefault();
@@ -328,8 +332,19 @@ export const TaskForm = ({ task, resources, allTasks, onSave, onCancel, onSplit 
         ? "font-bold text-gray-900 border-b pb-1 mb-2 text-xs flex items-center gap-2"
         : "font-semibold text-gray-900 border-b pb-2 mb-4 flex items-center gap-2";
 
+    const containerStyle: React.CSSProperties = shouldRotate ? {
+        position: 'fixed',
+        top: 0,
+        left: '100vw',
+        width: '100vh',
+        height: '100vw',
+        transform: 'rotate(90deg)',
+        transformOrigin: 'top left',
+        zIndex: 99999
+    } : { zIndex: isLandscapeMobile ? 99999 : 9999 };
+
     return (
-        <div className={containerClasses} style={{ zIndex: isLandscapeMobile ? 99999 : 9999 }}>
+        <div className={containerClasses} style={containerStyle}>
             <div className={cardClasses}>
                 <div className={headerClasses}>
                     <h2 className={`font-bold text-gray-800 ${isLandscapeMobile ? 'text-sm flex items-center gap-2' : 'text-xl'}`}>

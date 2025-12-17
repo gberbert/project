@@ -32,6 +32,7 @@ interface GanttChartProps {
     onOutdent: (task: Task) => void;
     onReorderTasks: (newTasks: Task[], movedTaskId?: string) => void;
     isModalOpen?: boolean;
+    onLandscapeModeChange?: (isLandscape: boolean) => void;
 }
 
 // Ensure TaskListTable receives the necessary props for DND
@@ -205,7 +206,7 @@ const SortableTaskRow = ({
     );
 };
 
-export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDeleteTask, onIndent, onOutdent, onReorderTasks, isModalOpen = false }: GanttChartProps) => {
+export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDeleteTask, onIndent, onOutdent, onReorderTasks, isModalOpen = false, onLandscapeModeChange }: GanttChartProps) => {
     const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
     const containerRef = React.useRef<HTMLDivElement>(null);
     const scrollContainerRef = React.useRef<HTMLDivElement>(null);
@@ -284,6 +285,10 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
         scrollStep(); // Start immediately
     };
     const [isLandscapeMode, setIsLandscapeMode] = useState(false);
+
+    useEffect(() => {
+        onLandscapeModeChange?.(isLandscapeMode);
+    }, [isLandscapeMode, onLandscapeModeChange]);
 
     // Zoom control for landscape (compact mode)
     const [isCompact, setIsCompact] = useState(false);

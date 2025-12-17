@@ -341,6 +341,7 @@ function App() {
     } = useProjectLogic(dbTasks);
 
     const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
+    const [isGanttLandscape, setIsGanttLandscape] = useState(false);
     const [editingTask, setEditingTask] = useState<Task | undefined>(undefined);
     const [insertAfterTaskId, setInsertAfterTaskId] = useState<string | undefined>(undefined);
 
@@ -1259,6 +1260,7 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
                                             onIndent={handleIndentTask}
                                             onOutdent={handleOutdentTask}
                                             isModalOpen={isTaskModalOpen || isStabilizationModalOpen || isEstimateModalOpen}
+                                            onLandscapeModeChange={setIsGanttLandscape}
                                         />
                                     </div>
                                 </div>
@@ -1343,6 +1345,7 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
             {isTaskModalOpen && (
                 <TaskForm
                     task={editingTask}
+                    forceLandscape={isGanttLandscape}
                     allTasks={tasks}
                     resources={resources}
                     onSave={handleSaveTask}
