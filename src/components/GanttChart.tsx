@@ -850,7 +850,14 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                 <style>
                     {`
                         /* Force touch events to work for scrolling on mobile */
-                        .mobile-gantt-fix, .mobile-gantt-fix * {
+                        .mobile-gantt-fix {
+                            overflow: auto !important;
+                            -webkit-overflow-scrolling: touch !important;
+                        }
+                        /* Disable pointer events on the chart content to let touch pass through to the scroller */
+                        .mobile-gantt-fix svg, 
+                        .mobile-gantt-fix .gantt-container {
+                            pointer-events: none !important;
                             touch-action: pan-x pan-y !important;
                         }
                     `}
