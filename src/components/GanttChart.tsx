@@ -3,7 +3,7 @@ import "gantt-task-react/dist/index.css";
 import { Task } from '../types';
 import React, { useMemo, useState, useEffect } from 'react';
 import { checkIsHoliday } from '../lib/utils';
-import { Plus, Minus, ChevronLeft, ChevronRight, GripVertical, Trash2, Smartphone, Minimize2, ZoomOut, ZoomIn, PanelLeftClose, PanelLeftOpen, FolderOpen, FolderClosed, BarChart3 } from 'lucide-react';
+import { Plus, Minus, ChevronLeft, ChevronRight, GripVertical, Trash2, Smartphone, Minimize2, ZoomOut, ZoomIn, PanelLeftClose, PanelLeftOpen, FolderOpen, FolderClosed, BarChart3, MoreHorizontal } from 'lucide-react';
 import {
     DndContext,
     closestCenter,
@@ -82,6 +82,7 @@ const SortableTaskRow = ({
         height: rowHeight,
         zIndex: isDragging ? 2 : 1,
         position: 'relative' as const,
+        touchAction: 'pan-x pan-y',
     };
 
     // Calculate Depth dynamically
@@ -210,10 +211,12 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
 
     // Zoom control for landscape (compact mode)
     const [isCompact, setIsCompact] = useState(false);
-    const [view, setView] = useState<ViewMode>(ViewMode.Day);
+    const [view, setView] = useState<ViewMode>(ViewMode.Year);
     const [collapsedTaskIds, setCollapsedTaskIds] = useState<string[]>([]);
     const [showTaskList, setShowTaskList] = useState(true);
     const [isSuperCompact, setIsSuperCompact] = useState(false);
+    const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' ? window.innerWidth < 1024 : false);
+    const [showMobileActions, setShowMobileActions] = useState(false);
     const initialScrollDone = React.useRef(false);
 
     const collapsedInitialized = React.useRef(false);
@@ -226,6 +229,26 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
             collapsedInitialized.current = true;
         }
     }, [tasks]);
+
+    // Auto-scroll to start when switching to Year view to show the first task
+    useEffect(() => {
+        if (view === ViewMode.Year) {
+            // Tiny timeout to ensure the grid has rendered
+            const timer = setTimeout(() => {
+                if (containerRef.current) {
+                    // Find the horizontal scroll container within the Gantt component
+                    const scrollables = containerRef.current.querySelectorAll('div');
+                    scrollables.forEach(el => {
+                        const style = window.getComputedStyle(el);
+                        if (style.overflowX === 'auto' || style.overflowX === 'scroll') {
+                            el.scrollLeft = 0;
+                        }
+                    });
+                }
+            }, 100);
+            return () => clearTimeout(timer);
+        }
+    }, [view]);
 
     const toggleTaskCollapse = (taskId: string) => {
         setCollapsedTaskIds(prev => prev.includes(taskId)
@@ -257,6 +280,7 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
     // Auto-exit landscape if screen becomes large
     useEffect(() => {
         const handleResize = () => {
+            setIsMobile(window.innerWidth < 1024);
             if (window.innerWidth >= 1024 && isLandscapeMode) {
                 setIsLandscapeMode(false);
             }
@@ -778,6 +802,29 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
         }
     `;
 
+    const mobileScrollCss = `
+        .mobile-gantt-fix div[style*="overflow-x: auto"],
+        .mobile-gantt-fix div[style*="overflow-x: scroll"] {
+            transform: rotateX(180deg);
+        }
+        .mobile-gantt-fix div[style*="overflow-x: auto"] > *,
+        .mobile-gantt-fix div[style*="overflow-x: scroll"] > * {
+            transform: rotateX(180deg);
+        }
+        .mobile-gantt-fix ::-webkit-scrollbar {
+            -webkit-appearance: none;
+            height: 6px; 
+            width: 6px;
+        }
+        .mobile-gantt-fix ::-webkit-scrollbar-thumb {
+            background-color: rgba(0,0,0,0.3);
+            border-radius: 4px;
+        }
+        .mobile-gantt-fix ::-webkit-scrollbar-track {
+            background: rgba(0,0,0,0.05);
+        }
+    `;
+
     const containerStyle: React.CSSProperties = isLandscapeMode ? {
         position: 'fixed',
         top: 0,
@@ -799,9 +846,10 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
     return (
         <div ref={containerRef} className={containerClasses} style={containerStyle}>
             {isLandscapeMode && <style>{landscapeCss}</style>}
+            {isMobile && !isLandscapeMode && <style>{mobileScrollCss}</style>}
 
             {/* Toolbar Header */}
-            <div className={`flex items-center justify-between p-4 border-b border-gray-100 bg-gray-50 flex-shrink-0 ${isLandscapeMode ? 'px-8 py-2 h-14' : ''}`}>
+            <div className={`flex items-center justify-between p-2 lg:p-4 border-b border-gray-100 bg-gray-50 flex-shrink-0 ${isLandscapeMode ? 'px-8 py-2 h-14' : ''}`}>
                 <div className="flex items-center gap-2">
                     <h3 className={`font-bold text-gray-700 whitespace-nowrap ${isCompact || isSuperCompact ? 'text-sm' : ''}`}>Cronograma</h3>
 
@@ -876,42 +924,97 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                 </div>
 
                 <div className="flex gap-2">
-                    <div className="flex bg-gray-100 rounded-lg p-1 mr-2">
-                        <button
-                            onClick={() => setView(ViewMode.Day)}
-                            className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${view === ViewMode.Day ? 'bg-white shadow text-indigo-600' : 'text-gray-500 hover:text-gray-900'}`}
-                        >
-                            Dia
-                        </button>
-                        <button
-                            onClick={() => setView(ViewMode.Week)}
-                            className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${view === ViewMode.Week ? 'bg-white shadow text-indigo-600' : 'text-gray-500 hover:text-gray-900'}`}
-                        >
-                            Semana
-                        </button>
-                        <button
-                            onClick={() => setView(ViewMode.Month)}
-                            className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${view === ViewMode.Month ? 'bg-white shadow text-indigo-600' : 'text-gray-500 hover:text-gray-900'}`}
-                        >
-                            Mês
-                        </button>
-                        <button
-                            onClick={() => setView(ViewMode.Year)}
-                            className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${view === ViewMode.Year ? 'bg-white shadow text-indigo-600' : 'text-gray-500 hover:text-gray-900'}`}
-                        >
-                            Ano
+                    {/* Desktop Toolbar */}
+                    <div className="flex gap-2">
+                        <div className="flex bg-gray-100 rounded-lg p-1 mr-2">
+                            <button
+                                onClick={() => setView(ViewMode.Day)}
+                                className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${view === ViewMode.Day ? 'bg-white shadow text-indigo-600' : 'text-gray-500 hover:text-gray-900'}`}
+                            >
+                                Dia
+                            </button>
+                            <button
+                                onClick={() => setView(ViewMode.Week)}
+                                className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${view === ViewMode.Week ? 'bg-white shadow text-indigo-600' : 'text-gray-500 hover:text-gray-900'}`}
+                            >
+                                Semana
+                            </button>
+                            <button
+                                onClick={() => setView(ViewMode.Month)}
+                                className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${view === ViewMode.Month ? 'bg-white shadow text-indigo-600' : 'text-gray-500 hover:text-gray-900'}`}
+                            >
+                                Mês
+                            </button>
+                            <button
+                                onClick={() => setView(ViewMode.Year)}
+                                className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${view === ViewMode.Year ? 'bg-white shadow text-indigo-600' : 'text-gray-500 hover:text-gray-900'}`}
+                            >
+                                Ano
+                            </button>
+                        </div>
+
+                        <button onClick={() => onAddTask(selectedTaskId || undefined)} className={`flex items-center gap-2 bg-indigo-600 text-white px-3 py-1.5 rounded-md text-sm hover:bg-indigo-700 transition ml-2 whitespace-nowrap ${isCompact ? 'text-xs px-2 py-1' : ''}`}>
+                            <span className="text-lg font-bold leading-none" style={{ marginTop: '-2px' }}>+</span>
+                            <span className="hidden sm:inline">Nova Tarefa</span>
                         </button>
                     </div>
 
 
-                    <button onClick={() => onAddTask(selectedTaskId || undefined)} className={`flex items-center gap-2 bg-indigo-600 text-white px-3 py-1.5 rounded-md text-sm hover:bg-indigo-700 transition ml-2 whitespace-nowrap ${isCompact ? 'text-xs px-2 py-1' : ''}`}>
-                        <span className="text-lg font-bold leading-none" style={{ marginTop: '-2px' }}>+</span>
-                        <span className="hidden sm:inline">Nova Tarefa</span>
-                    </button>
+                    <div className="hidden">
+                        <button
+                            onClick={() => setShowMobileActions(!showMobileActions)}
+                            className="bg-indigo-600 text-white px-3 py-1.5 rounded-md text-sm font-medium shadow hover:bg-indigo-700 transition flex items-center gap-2"
+                        >
+                            <span>Ações</span>
+                            <MoreHorizontal size={16} />
+                        </button>
+
+                        {showMobileActions && (
+                            <div className="absolute right-0 top-full mt-2 w-80 bg-white rounded-lg shadow-xl border border-gray-100 z-50 p-2 flex flex-col gap-2 animate-in fade-in zoom-in duration-200">
+                                <div className="text-xs font-bold text-gray-400 uppercase px-2 mb-1">Visualização</div>
+                                <div className="flex bg-gray-100 rounded-lg p-1">
+                                    <button
+                                        onClick={() => { setView(ViewMode.Day); setShowMobileActions(false); }}
+                                        className={`flex-1 px-2 py-1 text-xs font-medium rounded-md transition-all ${view === ViewMode.Day ? 'bg-white shadow text-indigo-600' : 'text-gray-500'}`}
+                                    >
+                                        Dia
+                                    </button>
+                                    <button
+                                        onClick={() => { setView(ViewMode.Week); setShowMobileActions(false); }}
+                                        className={`flex-1 px-2 py-1 text-xs font-medium rounded-md transition-all ${view === ViewMode.Week ? 'bg-white shadow text-indigo-600' : 'text-gray-500'}`}
+                                    >
+                                        Sem
+                                    </button>
+                                    <button
+                                        onClick={() => { setView(ViewMode.Month); setShowMobileActions(false); }}
+                                        className={`flex-1 px-2 py-1 text-xs font-medium rounded-md transition-all ${view === ViewMode.Month ? 'bg-white shadow text-indigo-600' : 'text-gray-500'}`}
+                                    >
+                                        Mês
+                                    </button>
+                                    <button
+                                        onClick={() => { setView(ViewMode.Year); setShowMobileActions(false); }}
+                                        className={`flex-1 px-2 py-1 text-xs font-medium rounded-md transition-all ${view === ViewMode.Year ? 'bg-white shadow text-indigo-600' : 'text-gray-500'}`}
+                                    >
+                                        Ano
+                                    </button>
+                                </div>
+
+                                <div className="h-px bg-gray-100 my-1"></div>
+
+                                <button
+                                    onClick={() => { onAddTask(selectedTaskId || undefined); setShowMobileActions(false); }}
+                                    className="flex items-center gap-2 bg-indigo-600 text-white px-3 py-2 rounded-md text-sm font-medium hover:bg-indigo-700 transition justify-center"
+                                >
+                                    <Plus size={16} />
+                                    <span>Nova Tarefa</span>
+                                </button>
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
 
-            <div className="flex-1 overflow-auto bg-white w-full">
+            <div className={`flex-1 overflow-x-auto overflow-y-auto bg-white w-full touch-pan-x touch-pan-y ${isMobile ? 'mobile-gantt-fix' : ''}`} style={{ WebkitOverflowScrolling: 'touch' }}>
                 {(!tasks || tasks.length === 0) ? (
                     <div className="w-full h-full flex flex-col items-center justify-center text-gray-400 min-h-[200px]">
                         <p>No tasks to display. Click "Nova Tarefa" to start.</p>
@@ -971,72 +1074,91 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                         )}
                     />
                 ) : (
-                    <DndContext
-                        sensors={sensors}
-                        collisionDetection={closestCenter}
-                        onDragEnd={handleDragEnd}
-                    >
-                        <Gantt
-                            tasks={ganttTasks}
-                            viewMode={view}
-                            locale="pt-BR"
-                            onDateChange={handleDateChange}
-                            onProgressChange={handleProgressChange}
-                            listCellWidth={showTaskList ? listCellWidth : ""}
-                            columnWidth={columnWidth}
-                            rowHeight={rowHeight}
-                            barFill={55}
-                            ganttHeight={500}
-                            TaskListTable={!showTaskList ? () => <></> : (props) => (
-                                <div className="font-sans text-sm border-r border-gray-200 bg-white">
-                                    <SortableContext
-                                        items={props.tasks.filter(t => t.id !== 'gantt-spacer').map(t => t.id)}
-                                        strategy={verticalListSortingStrategy}
-                                    >
-                                        {props.tasks.filter(t => t.id !== 'gantt-spacer').map(t => {
-                                            const original = tasks.find(orig => orig.id === t.id);
-                                            const hasChildren = tasks.some(sub => sub.parent === t.id);
-                                            return (
-                                                <SortableTaskRow
-                                                    key={t.id}
-                                                    task={t}
-                                                    originalTask={original}
-                                                    allTasks={tasks}
-                                                    rowHeight={props.rowHeight}
-                                                    isSelected={selectedTaskId === t.id}
-                                                    onSelect={(id) => setSelectedTaskId(prev => prev === id ? null : id)}
-                                                    onEdit={onEditTask}
-                                                    onIndent={onIndent}
-                                                    onOutdent={onOutdent}
-                                                    onDeleteTask={onDeleteTask}
-                                                    isCompact={effectiveCompact}
-                                                    onToggleCollapse={toggleTaskCollapse}
-                                                    isCollapsed={collapsedTaskIds.includes(t.id)}
-                                                    hasChildren={hasChildren}
-                                                />
-                                            );
-                                        })}
-                                    </SortableContext>
-                                </div>
-                            )}
-                            TaskListHeader={!showTaskList ? () => <></> : ({ headerHeight }) => (
-                                <div
-                                    className="flex items-center bg-gray-50 border-b border-r border-gray-200 font-bold text-gray-500 uppercase tracking-wider"
-                                    style={{ height: headerHeight, fontSize: effectiveCompact ? '10px' : '12px' }}
-                                >
-                                    <div className="px-4 flex-1 border-r border-gray-200 h-full flex items-center" style={{ width: listCellWidth, minWidth: listCellWidth }}>
-                                        Tarefa
-                                    </div>
-                                    <div className="px-4 border-r border-gray-200 h-full flex items-center justify-center" style={{ width: effectiveCompact ? '80px' : '100px', minWidth: effectiveCompact ? '80px' : '100px' }}>
-                                        Início
-                                    </div>
-                                    <div className="px-4 h-full flex items-center justify-center" style={{ width: effectiveCompact ? '80px' : '100px', minWidth: effectiveCompact ? '80px' : '100px' }}>
-                                        Fim
-                                    </div>
-                                </div>
-                            )}
-                        />
-                    </DndContext>
+                    <div className="w-full h-full">
+                        {isMobile ? (
+                            <Gantt
+                                tasks={ganttTasks}
+                                viewMode={view}
+                                locale="pt-BR"
+                                onDateChange={handleDateChange}
+                                onProgressChange={handleProgressChange}
+                                listCellWidth={(showTaskList && !isMobile) ? listCellWidth : ""}
+                                columnWidth={columnWidth}
+                                rowHeight={rowHeight}
+                                barFill={55}
+                                ganttHeight={500}
+                                TaskListTable={() => <></>}
+                                TaskListHeader={() => <></>}
+                            />
+                        ) : (
+                            <DndContext
+                                sensors={sensors}
+                                collisionDetection={closestCenter}
+                                onDragEnd={handleDragEnd}
+                            >
+                                <Gantt
+                                    tasks={ganttTasks}
+                                    viewMode={view}
+                                    locale="pt-BR"
+                                    onDateChange={handleDateChange}
+                                    onProgressChange={handleProgressChange}
+                                    listCellWidth={(showTaskList && !isMobile) ? listCellWidth : ""}
+                                    columnWidth={columnWidth}
+                                    rowHeight={rowHeight}
+                                    barFill={55}
+                                    ganttHeight={500}
+                                    TaskListTable={(!showTaskList || isMobile) ? () => <></> : (props) => (
+                                        <div className="font-sans text-sm border-r border-gray-200 bg-white touch-pan-x touch-pan-y">
+                                            <SortableContext
+                                                items={props.tasks.filter(t => t.id !== 'gantt-spacer').map(t => t.id)}
+                                                strategy={verticalListSortingStrategy}
+                                            >
+                                                {props.tasks.filter(t => t.id !== 'gantt-spacer').map(t => {
+                                                    const original = tasks.find(orig => orig.id === t.id);
+                                                    const hasChildren = tasks.some(sub => sub.parent === t.id);
+                                                    return (
+                                                        <SortableTaskRow
+                                                            key={t.id}
+                                                            task={t}
+                                                            originalTask={original}
+                                                            allTasks={tasks}
+                                                            rowHeight={props.rowHeight}
+                                                            isSelected={selectedTaskId === t.id}
+                                                            onSelect={(id) => setSelectedTaskId(prev => prev === id ? null : id)}
+                                                            onEdit={onEditTask}
+                                                            onIndent={onIndent}
+                                                            onOutdent={onOutdent}
+                                                            onDeleteTask={onDeleteTask}
+                                                            isCompact={effectiveCompact}
+                                                            onToggleCollapse={toggleTaskCollapse}
+                                                            isCollapsed={collapsedTaskIds.includes(t.id)}
+                                                            hasChildren={hasChildren}
+                                                        />
+                                                    );
+                                                })}
+                                            </SortableContext>
+                                        </div>
+                                    )}
+                                    TaskListHeader={(!showTaskList || isMobile) ? () => <></> : ({ headerHeight }) => (
+                                        <div
+                                            className="flex items-center bg-gray-50 border-b border-r border-gray-200 font-bold text-gray-500 uppercase tracking-wider"
+                                            style={{ height: headerHeight, fontSize: effectiveCompact ? '10px' : '12px' }}
+                                        >
+                                            <div className="px-4 flex-1 border-r border-gray-200 h-full flex items-center" style={{ width: listCellWidth, minWidth: listCellWidth }}>
+                                                Tarefa
+                                            </div>
+                                            <div className="px-4 border-r border-gray-200 h-full flex items-center justify-center" style={{ width: effectiveCompact ? '80px' : '100px', minWidth: effectiveCompact ? '80px' : '100px' }}>
+                                                Início
+                                            </div>
+                                            <div className="px-4 h-full flex items-center justify-center" style={{ width: effectiveCompact ? '80px' : '100px', minWidth: effectiveCompact ? '80px' : '100px' }}>
+                                                Fim
+                                            </div>
+                                        </div>
+                                    )}
+                                />
+                            </DndContext>
+                        )}
+                    </div>
                 ))}
             </div>
         </div>

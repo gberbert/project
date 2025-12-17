@@ -1095,11 +1095,11 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
                 </header>
 
                 {/* Main Content */}
-                <main className="flex-1 p-8 overflow-y-auto">
+                <main className="flex-1 p-2 lg:p-8 overflow-y-auto">
 
                     {/* View Title Header */}
                     <div className="flex flex-col md:flex-row md:justify-between md:items-end mb-6 gap-4 md:gap-0">
-                        <div className="flex-1 mr-6">
+                        <div className="flex-1 md:mr-6 text-center md:text-left">
                             <h1 className="text-2xl font-bold text-gray-900">
                                 {parsedViewType === 'team' ? 'Gestão da Equipe' :
                                     parsedViewType === 'settings' ? 'Configurações do Sistema' :
@@ -1247,7 +1247,7 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
                                 <div className="flex-1 border-b border-gray-200 h-px"></div>
                             </div>
                             {ganttTab === 'schedule' && (
-                                <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-[650px] flex flex-col mt-8">
+                                <div className="bg-white p-1 lg:p-6 rounded-xl shadow-sm border border-gray-100 h-[650px] flex flex-col mt-4 lg:mt-8">
                                     <div className="flex-1 overflow-hidden relative">
                                         <GanttChart
                                             tasks={projectTasks}
