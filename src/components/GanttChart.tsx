@@ -210,7 +210,7 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
     const scrollContainerRef = React.useRef<HTMLDivElement>(null);
 
     const handleManualScroll = (direction: 'left' | 'right') => {
-        const scrollAmount = window.innerWidth * 60.0; // Super Massive jump (10x previous)
+        const scrollAmount = window.innerWidth * 600.0; // Hyper Massive jump
 
         // 1. Try finding internal scrollables (library generated)
         if (containerRef.current) {
