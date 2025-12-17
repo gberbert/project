@@ -210,7 +210,7 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
     const scrollContainerRef = React.useRef<HTMLDivElement>(null);
 
     const handleManualScroll = (direction: 'left' | 'right') => {
-        const scrollAmount = window.innerWidth * 6.0; // Massive jump per click
+        const scrollAmount = window.innerWidth * 60.0; // Super Massive jump (10x previous)
 
         // 1. Try finding internal scrollables (library generated)
         if (containerRef.current) {
@@ -255,7 +255,7 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
         handleManualScroll(direction); // First jump immediately
         scrollInterval.current = setInterval(() => {
             handleManualScroll(direction);
-        }, 600); // Repeat every 600ms
+        }, 100); // Repeat very fast (every 100ms)
     };
     const [isLandscapeMode, setIsLandscapeMode] = useState(false);
 
