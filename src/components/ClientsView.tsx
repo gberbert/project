@@ -195,13 +195,13 @@ export const ClientsView = ({ clients, onCreateClient, onUpdateClient, onDeleteC
                                 <div className="flex gap-2">
                                     <button
                                         onClick={(e) => { e.stopPropagation(); openModal(client); }}
-                                        className="text-xs font-bold text-indigo-600 hover:bg-indigo-50 px-3 py-1 rounded-full transition-colors opacity-0 group-hover:opacity-100"
+                                        className="text-xs font-bold text-indigo-600 hover:bg-indigo-50 px-3 py-1 rounded-full transition-colors"
                                     >
                                         Editar
                                     </button>
                                     <button
                                         onClick={(e) => handleExcludeYear(client, e)}
-                                        className="text-gray-400 hover:text-red-600 p-1 rounded-full hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100"
+                                        className="text-gray-400 hover:text-red-600 p-1 rounded-full hover:bg-red-50 transition-colors"
                                         title="Remover deste ano"
                                     >
                                         <Trash2 size={16} />

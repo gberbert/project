@@ -117,7 +117,7 @@ export const MyProjectsView = ({ projects = [], onCreateProject, onUpdateProject
                         onClick={() => onSelectProject(project.id)}
                         className="group bg-white rounded-2xl p-6 border border-gray-100 shadow-sm hover:shadow-xl hover:border-indigo-100 transition-all duration-300 cursor-pointer relative overflow-hidden"
                     >
-                        <div className="absolute top-0 right-0 p-4 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
+                        <div className="absolute top-0 right-0 p-4 flex gap-2">
                             <button
                                 onClick={(e) => openEditModal(project, e)}
                                 className="text-gray-400 hover:text-indigo-600 p-2 rounded-full hover:bg-indigo-50 transition-colors"
