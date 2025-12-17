@@ -220,11 +220,35 @@ export const TaskForm = ({ task, resources, allTasks, onSave, onCancel, onSplit 
 
     useEffect(() => {
         const checkLandscape = () => {
-            setIsLandscapeMobile(window.innerHeight < 600 && window.innerWidth > window.innerHeight);
+            // Mais robusto: Media Query para orientação E altura máxima (para não pegar desktops/tablets grandes)
+            // max-height: 900px cobre a maioria dos celulares em landscape
+            const mq = window.matchMedia("(orientation: landscape) and (max-height: 900px) and (max-width: 1024px)");
+            setIsLandscapeMobile(mq.matches);
         };
+
         checkLandscape();
-        window.addEventListener('resize', checkLandscape);
-        return () => window.removeEventListener('resize', checkLandscape);
+
+        const mqListener = window.matchMedia("(orientation: landscape) and (max-height: 900px) and (max-width: 1024px)");
+        // Modern browsers suggest addEventListener on MediaQueryList, but for safety with older React constructs:
+        const handler = (e: MediaQueryListEvent) => setIsLandscapeMobile(e.matches);
+
+        if (mqListener.addEventListener) {
+            mqListener.addEventListener("change", handler);
+        } else {
+            // Fallback for older browsers
+            mqListener.addListener(handler);
+        }
+
+        window.addEventListener('resize', checkLandscape); // Fallback extra
+
+        return () => {
+            if (mqListener.removeEventListener) {
+                mqListener.removeEventListener("change", handler);
+            } else {
+                mqListener.removeListener(handler);
+            }
+            window.removeEventListener('resize', checkLandscape);
+        };
     }, []);
 
     const handleSubmit = (e?: React.FormEvent | React.MouseEvent) => {
