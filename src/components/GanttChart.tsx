@@ -241,21 +241,25 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
         }
     };
 
-    const scrollInterval = React.useRef<ReturnType<typeof setInterval> | null>(null);
+    const scrollFrameRef = React.useRef<number | null>(null);
 
     const stopScrolling = () => {
-        if (scrollInterval.current) {
-            clearInterval(scrollInterval.current);
-            scrollInterval.current = null;
+        if (scrollFrameRef.current) {
+            cancelAnimationFrame(scrollFrameRef.current);
+            scrollFrameRef.current = null;
         }
     };
 
     const startScrolling = (direction: 'left' | 'right') => {
         stopScrolling();
-        handleManualScroll(direction); // First jump immediately
-        scrollInterval.current = setInterval(() => {
+
+        const scrollStep = () => {
             handleManualScroll(direction);
-        }, 100); // Repeat very fast (every 100ms)
+            // Recursively call for next frame to achieve maximum smooth speed
+            scrollFrameRef.current = requestAnimationFrame(scrollStep);
+        };
+
+        scrollStep(); // Start immediately
     };
     const [isLandscapeMode, setIsLandscapeMode] = useState(false);
 
