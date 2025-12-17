@@ -223,7 +223,7 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                 if ((style.overflowX === 'auto' || style.overflowX === 'scroll') && el.scrollWidth > el.clientWidth) {
                     el.scrollBy({
                         left: direction === 'right' ? scrollAmount : -scrollAmount,
-                        behavior: 'smooth'
+                        behavior: 'auto'
                     });
                     foundInternal = true;
                 }
@@ -236,7 +236,7 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
         if (scrollContainerRef.current) {
             scrollContainerRef.current.scrollBy({
                 left: direction === 'right' ? scrollAmount : -scrollAmount,
-                behavior: 'smooth'
+                behavior: 'auto'
             });
         }
     };
