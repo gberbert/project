@@ -1019,7 +1019,7 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
                     </div>
                 )}
                 {/* Header */}
-                <header className="bg-white border-b border-gray-200 h-16 px-8 flex items-center justify-between z-10">
+                <header className="bg-white border-b border-gray-200 h-16 px-8 flex items-center justify-between z-40">
                     <div className="flex items-center gap-4">
                         <button
                             className="lg:hidden p-2 -ml-2 text-gray-600"
