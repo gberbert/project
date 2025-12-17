@@ -846,8 +846,16 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
     return (
         <div ref={containerRef} className={containerClasses} style={containerStyle}>
             {isLandscapeMode && <style>{landscapeCss}</style>}
-
-
+            {isMobile && !isLandscapeMode && (
+                <style>
+                    {`
+                        /* Force touch events to work for scrolling on mobile */
+                        .mobile-gantt-fix, .mobile-gantt-fix * {
+                            touch-action: pan-x pan-y !important;
+                        }
+                    `}
+                </style>
+            )}
             {/* Toolbar Header */}
             <div className={`flex items-center justify-between p-2 lg:p-4 border-b border-gray-100 bg-gray-50 flex-shrink-0 ${isLandscapeMode ? 'px-8 py-2 h-14' : ''}`}>
                 <div className="flex items-center gap-2">
@@ -925,7 +933,7 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
 
                 <div className="flex gap-2">
                     {/* Desktop Toolbar */}
-                    <div className="flex gap-2">
+                    <div className={`${isLandscapeMode ? 'flex' : 'hidden'} lg:flex gap-2`}>
                         <div className="flex bg-gray-100 rounded-lg p-1 mr-2">
                             <button
                                 onClick={() => setView(ViewMode.Day)}
@@ -960,7 +968,7 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                     </div>
 
 
-                    <div className="hidden">
+                    <div className={`${isLandscapeMode ? 'hidden' : ''} lg:hidden relative`}>
                         <button
                             onClick={() => setShowMobileActions(!showMobileActions)}
                             className="bg-indigo-600 text-white px-3 py-1.5 rounded-md text-sm font-medium shadow hover:bg-indigo-700 transition flex items-center gap-2"

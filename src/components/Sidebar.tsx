@@ -156,7 +156,7 @@ export const Sidebar = ({ activeView, onNavigate, className = '', clients = [], 
             <div className={`h-16 flex items-center ${isCollapsed ? 'justify-center' : 'justify-center lg:justify-between lg:px-6'} border-b border-slate-800 bg-slate-950/50 shrink-0 relative group`}>
                 <div className="flex items-center">
                     <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center font-bold text-xl text-white shadow-lg shadow-indigo-500/20">A</div>
-                    {!isCollapsed && <span className="ml-3 font-bold text-lg hidden lg:block tracking-tight text-white animate-in fade-in slide-in-from-left-2">Antigravity</span>}
+                    {!isCollapsed && <span className="ml-3 font-bold text-lg tracking-tight text-white animate-in fade-in slide-in-from-left-2">Antigravity</span>}
                 </div>
 
                 {/* Collapse Toggle (Desktop Only) */}
@@ -171,7 +171,7 @@ export const Sidebar = ({ activeView, onNavigate, className = '', clients = [], 
 
             {/* User Info (Mini) */}
             {currentUser && (
-                <div className={`p-4 border-b border-slate-800 hidden lg:flex items-center gap-3 ${isCollapsed ? 'justify-center' : ''}`}>
+                <div className={`p-4 border-b border-slate-800 flex items-center gap-3 ${isCollapsed ? 'justify-center' : ''}`}>
                     <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-xs font-bold border border-slate-600 shrink-0">
                         {currentUser.displayName ? currentUser.displayName.charAt(0).toUpperCase() : 'U'}
                     </div>
@@ -208,10 +208,10 @@ export const Sidebar = ({ activeView, onNavigate, className = '', clients = [], 
                         title={isCollapsed ? "Configurações" : undefined}
                     >
                         <Settings size={20} className="group-hover:rotate-90 transition-transform duration-500" />
-                        {!isCollapsed && <span className="ml-3 hidden lg:block font-medium">Configurações</span>}
+                        {!isCollapsed && <span className="ml-3 font-medium">Configurações</span>}
                     </button>
                 )}
-                <div className="text-xs text-slate-600 text-center mt-2 hidden lg:block font-mono">
+                <div className="text-xs text-slate-600 text-center mt-2 font-mono">
                     {!isCollapsed && `v${appVersion}`}
                 </div>
             </div>
