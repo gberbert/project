@@ -240,6 +240,23 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
             });
         }
     };
+
+    const scrollInterval = React.useRef<ReturnType<typeof setInterval> | null>(null);
+
+    const stopScrolling = () => {
+        if (scrollInterval.current) {
+            clearInterval(scrollInterval.current);
+            scrollInterval.current = null;
+        }
+    };
+
+    const startScrolling = (direction: 'left' | 'right') => {
+        stopScrolling();
+        handleManualScroll(direction); // First jump immediately
+        scrollInterval.current = setInterval(() => {
+            handleManualScroll(direction);
+        }, 600); // Repeat every 600ms
+    };
     const [isLandscapeMode, setIsLandscapeMode] = useState(false);
 
     // Zoom control for landscape (compact mode)
@@ -1198,13 +1215,23 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
             {isMobile && (
                 <div className="fixed bottom-20 right-4 flex gap-3 z-[9999]">
                     <button
-                        onClick={() => handleManualScroll('left')}
+                        onTouchStart={() => startScrolling('left')}
+                        onTouchEnd={stopScrolling}
+                        onMouseDown={() => startScrolling('left')}
+                        onMouseUp={stopScrolling}
+                        onMouseLeave={stopScrolling}
+                        onContextMenu={(e) => e.preventDefault()}
                         className="p-4 bg-indigo-600 shadow-xl rounded-full text-white active:scale-90 transition-all border-2 border-white/20"
                     >
                         <ChevronLeft size={28} />
                     </button>
                     <button
-                        onClick={() => handleManualScroll('right')}
+                        onTouchStart={() => startScrolling('right')}
+                        onTouchEnd={stopScrolling}
+                        onMouseDown={() => startScrolling('right')}
+                        onMouseUp={stopScrolling}
+                        onMouseLeave={stopScrolling}
+                        onContextMenu={(e) => e.preventDefault()}
                         className="p-4 bg-indigo-600 shadow-xl rounded-full text-white active:scale-90 transition-all border-2 border-white/20"
                     >
                         <ChevronRight size={28} />
