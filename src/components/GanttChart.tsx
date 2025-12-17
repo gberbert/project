@@ -210,8 +210,8 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
     const scrollContainerRef = React.useRef<HTMLDivElement>(null);
 
     const handleManualScroll = (direction: 'left' | 'right' | 'up' | 'down') => {
-        const scrollAmountX = window.innerWidth * 0.1;
-        const scrollAmountY = window.innerHeight * 0.1;
+        const scrollAmountX = window.innerWidth * 0.064;
+        const scrollAmountY = window.innerHeight * 0.064;
 
         const isHorizontal = direction === 'left' || direction === 'right';
         const isVertical = direction === 'up' || direction === 'down';
