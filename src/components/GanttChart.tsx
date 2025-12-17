@@ -846,7 +846,7 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
     return (
         <div ref={containerRef} className={containerClasses} style={containerStyle}>
             {isLandscapeMode && <style>{landscapeCss}</style>}
-            {isMobile && !isLandscapeMode && <style>{mobileScrollCss}</style>}
+
 
             {/* Toolbar Header */}
             <div className={`flex items-center justify-between p-2 lg:p-4 border-b border-gray-100 bg-gray-50 flex-shrink-0 ${isLandscapeMode ? 'px-8 py-2 h-14' : ''}`}>
