@@ -210,8 +210,8 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
     const scrollContainerRef = React.useRef<HTMLDivElement>(null);
 
     const handleManualScroll = (direction: 'left' | 'right' | 'up' | 'down') => {
-        const scrollAmountX = window.innerWidth * 0.064;
-        const scrollAmountY = window.innerHeight * 0.064;
+        const scrollAmountX = window.innerWidth * 0.05;
+        const scrollAmountY = window.innerHeight * 0.05;
 
         const isHorizontal = direction === 'left' || direction === 'right';
         const isVertical = direction === 'up' || direction === 'down';
@@ -1238,61 +1238,72 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                 ))}
             </div>
             {isMobile && (
-                <div className="fixed bottom-20 right-4 z-[9999] flex flex-col items-center gap-1">
-                    {/* Up */}
-                    <button
-                        onTouchStart={() => startScrolling('up')}
-                        onTouchEnd={stopScrolling}
-                        onMouseDown={() => startScrolling('up')}
-                        onMouseUp={stopScrolling}
-                        onMouseLeave={stopScrolling}
-                        onContextMenu={(e) => e.preventDefault()}
-                        className="p-3 bg-indigo-600 shadow-xl rounded-full text-white active:scale-90 transition-all border-2 border-white/20"
-                    >
-                        <ChevronUp size={24} />
-                    </button>
-
-                    <div className="flex gap-1">
-                        {/* Left */}
+                <>
+                    <div className="fixed bottom-20 left-4 z-[9999]">
                         <button
-                            onTouchStart={() => startScrolling('left')}
-                            onTouchEnd={stopScrolling}
-                            onMouseDown={() => startScrolling('left')}
-                            onMouseUp={stopScrolling}
-                            onMouseLeave={stopScrolling}
-                            onContextMenu={(e) => e.preventDefault()}
-                            className="p-3 bg-indigo-600 shadow-xl rounded-full text-white active:scale-90 transition-all border-2 border-white/20"
+                            onClick={() => setShowTaskList(!showTaskList)}
+                            className="p-3 bg-white shadow-xl rounded-full text-indigo-600 active:scale-90 transition-all border border-indigo-100"
                         >
-                            <ChevronLeft size={24} />
-                        </button>
-
-                        {/* Right */}
-                        <button
-                            onTouchStart={() => startScrolling('right')}
-                            onTouchEnd={stopScrolling}
-                            onMouseDown={() => startScrolling('right')}
-                            onMouseUp={stopScrolling}
-                            onMouseLeave={stopScrolling}
-                            onContextMenu={(e) => e.preventDefault()}
-                            className="p-3 bg-indigo-600 shadow-xl rounded-full text-white active:scale-90 transition-all border-2 border-white/20"
-                        >
-                            <ChevronRight size={24} />
+                            {showTaskList ? <ChevronLeft size={24} /> : <ChevronRight size={24} />}
                         </button>
                     </div>
 
-                    {/* Down */}
-                    <button
-                        onTouchStart={() => startScrolling('down')}
-                        onTouchEnd={stopScrolling}
-                        onMouseDown={() => startScrolling('down')}
-                        onMouseUp={stopScrolling}
-                        onMouseLeave={stopScrolling}
-                        onContextMenu={(e) => e.preventDefault()}
-                        className="p-3 bg-indigo-600 shadow-xl rounded-full text-white active:scale-90 transition-all border-2 border-white/20"
-                    >
-                        <ChevronDown size={24} />
-                    </button>
-                </div>
+                    <div className="fixed bottom-20 right-4 z-[9999] flex flex-col items-center gap-0">
+                        {/* Up */}
+                        <button
+                            onTouchStart={() => startScrolling('up')}
+                            onTouchEnd={stopScrolling}
+                            onMouseDown={() => startScrolling('up')}
+                            onMouseUp={stopScrolling}
+                            onMouseLeave={stopScrolling}
+                            onContextMenu={(e) => e.preventDefault()}
+                            className="p-3 bg-indigo-600 shadow-xl rounded-full text-white active:scale-90 transition-all border-2 border-white/20"
+                        >
+                            <ChevronUp size={24} />
+                        </button>
+
+                        <div className="flex gap-1">
+                            {/* Left */}
+                            <button
+                                onTouchStart={() => startScrolling('left')}
+                                onTouchEnd={stopScrolling}
+                                onMouseDown={() => startScrolling('left')}
+                                onMouseUp={stopScrolling}
+                                onMouseLeave={stopScrolling}
+                                onContextMenu={(e) => e.preventDefault()}
+                                className="p-3 bg-indigo-600 shadow-xl rounded-full text-white active:scale-90 transition-all border-2 border-white/20"
+                            >
+                                <ChevronLeft size={24} />
+                            </button>
+
+                            {/* Right */}
+                            <button
+                                onTouchStart={() => startScrolling('right')}
+                                onTouchEnd={stopScrolling}
+                                onMouseDown={() => startScrolling('right')}
+                                onMouseUp={stopScrolling}
+                                onMouseLeave={stopScrolling}
+                                onContextMenu={(e) => e.preventDefault()}
+                                className="p-3 bg-indigo-600 shadow-xl rounded-full text-white active:scale-90 transition-all border-2 border-white/20"
+                            >
+                                <ChevronRight size={24} />
+                            </button>
+                        </div>
+
+                        {/* Down */}
+                        <button
+                            onTouchStart={() => startScrolling('down')}
+                            onTouchEnd={stopScrolling}
+                            onMouseDown={() => startScrolling('down')}
+                            onMouseUp={stopScrolling}
+                            onMouseLeave={stopScrolling}
+                            onContextMenu={(e) => e.preventDefault()}
+                            className="p-3 bg-indigo-600 shadow-xl rounded-full text-white active:scale-90 transition-all border-2 border-white/20"
+                        >
+                            <ChevronDown size={24} />
+                        </button>
+                    </div>
+                </>
             )}
         </div>
     );
