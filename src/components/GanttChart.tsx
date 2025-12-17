@@ -207,6 +207,39 @@ const SortableTaskRow = ({
 export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDeleteTask, onIndent, onOutdent, onReorderTasks }: GanttChartProps) => {
     const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
     const containerRef = React.useRef<HTMLDivElement>(null);
+    const scrollContainerRef = React.useRef<HTMLDivElement>(null);
+
+    const handleManualScroll = (direction: 'left' | 'right') => {
+        const scrollAmount = window.innerWidth / 1.5; // Scroll screen width
+
+        // 1. Try finding internal scrollables (library generated)
+        if (containerRef.current) {
+            const allDivs = containerRef.current.querySelectorAll('div');
+            let foundInternal = false;
+
+            allDivs.forEach(el => {
+                const style = window.getComputedStyle(el);
+                // Check if element is horizontally scrollable
+                if ((style.overflowX === 'auto' || style.overflowX === 'scroll') && el.scrollWidth > el.clientWidth) {
+                    el.scrollBy({
+                        left: direction === 'right' ? scrollAmount : -scrollAmount,
+                        behavior: 'smooth'
+                    });
+                    foundInternal = true;
+                }
+            });
+
+            if (foundInternal) return;
+        }
+
+        // 2. Fallback to our wrapper
+        if (scrollContainerRef.current) {
+            scrollContainerRef.current.scrollBy({
+                left: direction === 'right' ? scrollAmount : -scrollAmount,
+                behavior: 'smooth'
+            });
+        }
+    };
     const [isLandscapeMode, setIsLandscapeMode] = useState(false);
 
     // Zoom control for landscape (compact mode)
@@ -846,23 +879,7 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
     return (
         <div ref={containerRef} className={containerClasses} style={containerStyle}>
             {isLandscapeMode && <style>{landscapeCss}</style>}
-            {isMobile && !isLandscapeMode && (
-                <style>
-                    {`
-                        /* Force touch events to work for scrolling on mobile */
-                        .mobile-gantt-fix {
-                            overflow: auto !important;
-                            -webkit-overflow-scrolling: touch !important;
-                        }
-                        /* Disable pointer events on the chart content to let touch pass through to the scroller */
-                        .mobile-gantt-fix svg, 
-                        .mobile-gantt-fix .gantt-container {
-                            pointer-events: none !important;
-                            touch-action: pan-x pan-y !important;
-                        }
-                    `}
-                </style>
-            )}
+
             {/* Toolbar Header */}
             <div className={`flex items-center justify-between p-2 lg:p-4 border-b border-gray-100 bg-gray-50 flex-shrink-0 ${isLandscapeMode ? 'px-8 py-2 h-14' : ''}`}>
                 <div className="flex items-center gap-2">
@@ -1029,7 +1046,7 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                 </div>
             </div>
 
-            <div className={`flex-1 overflow-x-auto overflow-y-auto bg-white w-full touch-pan-x touch-pan-y ${isMobile ? 'mobile-gantt-fix' : ''}`} style={{ WebkitOverflowScrolling: 'touch' }}>
+            <div ref={scrollContainerRef} className={`flex-1 overflow-x-auto overflow-y-auto bg-white w-full touch-pan-x touch-pan-y ${isMobile ? 'mobile-gantt-fix' : ''}`} style={{ WebkitOverflowScrolling: 'touch' }}>
                 {(!tasks || tasks.length === 0) ? (
                     <div className="w-full h-full flex flex-col items-center justify-center text-gray-400 min-h-[200px]">
                         <p>No tasks to display. Click "Nova Tarefa" to start.</p>
@@ -1178,6 +1195,22 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                     </div>
                 ))}
             </div>
+            {isMobile && (
+                <div className="fixed bottom-20 right-4 flex gap-3 z-[9999]">
+                    <button
+                        onClick={() => handleManualScroll('left')}
+                        className="p-4 bg-indigo-600 shadow-xl rounded-full text-white active:scale-90 transition-all border-2 border-white/20"
+                    >
+                        <ChevronLeft size={28} />
+                    </button>
+                    <button
+                        onClick={() => handleManualScroll('right')}
+                        className="p-4 bg-indigo-600 shadow-xl rounded-full text-white active:scale-90 transition-all border-2 border-white/20"
+                    >
+                        <ChevronRight size={28} />
+                    </button>
+                </div>
+            )}
         </div>
     );
 };
