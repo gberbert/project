@@ -219,8 +219,8 @@ export const StabilizationModal = ({ isOpen, onClose, tasks, onUpdateTasks }: St
                                         <div className="flex-1">
                                             <div className="flex items-center gap-2 mb-1">
                                                 <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded ${issue.type === 'delayed' ? 'bg-red-100 text-red-700' :
-                                                        issue.type === 'not_started' ? 'bg-orange-100 text-orange-700' :
-                                                            'bg-yellow-100 text-yellow-700'
+                                                    issue.type === 'not_started' ? 'bg-orange-100 text-orange-700' :
+                                                        'bg-yellow-100 text-yellow-700'
                                                     }`}>
                                                     {issue.type === 'delayed' ? 'Atrasada' : issue.type === 'not_started' ? 'Não Iniciou' : 'Defasada'}
                                                 </span>
@@ -234,12 +234,12 @@ export const StabilizationModal = ({ isOpen, onClose, tasks, onUpdateTasks }: St
                                         </div>
 
                                         {/* Interaction Zone */}
-                                        <div className="flex items-center gap-6 bg-gray-50 p-3 rounded-lg border border-gray-100">
+                                        <div className="flex flex-wrap items-center gap-6 bg-gray-50 p-3 rounded-lg border border-gray-100">
 
                                             {/* Action Selector */}
                                             <div className="flex flex-col gap-1">
                                                 <label className="text-[10px] font-bold text-gray-400 uppercase">Ação</label>
-                                                <div className="flex gap-2">
+                                                <div className="flex flex-wrap gap-2">
                                                     <button
                                                         onClick={() => handleActionChange(idx, 'update_progress')}
                                                         className={`px-3 py-1.5 text-xs font-medium rounded border transition-colors ${issue.action === 'update_progress' ? 'bg-blue-100 text-blue-700 border-blue-200' : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300'}`}
@@ -253,16 +253,16 @@ export const StabilizationModal = ({ isOpen, onClose, tasks, onUpdateTasks }: St
                                                         Reprogramar
                                                     </button>
                                                     <button
-                                                        onClick={() => handleActionChange(idx, 'complete')}
-                                                        className={`px-3 py-1.5 text-xs font-medium rounded border transition-colors ${issue.action === 'complete' ? 'bg-green-100 text-green-700 border-green-200' : 'bg-white text-gray-600 border-gray-200 hover:border-green-300'}`}
-                                                    >
-                                                        Concluir
-                                                    </button>
-                                                    <button
                                                         onClick={() => handleActionChange(idx, 'keep')}
                                                         className={`px-3 py-1.5 text-xs font-medium rounded border transition-colors ${issue.action === 'keep' ? 'bg-gray-200 text-gray-700 border-gray-300' : 'bg-white text-gray-400 border-gray-200 hover:text-gray-600'}`}
                                                     >
                                                         Ignorar
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleActionChange(idx, 'complete')}
+                                                        className={`w-full px-3 py-1.5 text-xs font-medium rounded border transition-colors ${issue.action === 'complete' ? 'bg-green-100 text-green-700 border-green-200' : 'bg-white text-gray-600 border-gray-200 hover:border-green-300'}`}
+                                                    >
+                                                        Concluir
                                                     </button>
                                                 </div>
                                             </div>

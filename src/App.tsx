@@ -1258,6 +1258,7 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
                                             onReorderTasks={handleReorderTasks}
                                             onIndent={handleIndentTask}
                                             onOutdent={handleOutdentTask}
+                                            isModalOpen={isTaskModalOpen || isStabilizationModalOpen || isEstimateModalOpen}
                                         />
                                     </div>
                                 </div>

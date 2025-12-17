@@ -31,6 +31,7 @@ interface GanttChartProps {
     onIndent: (task: Task) => void;
     onOutdent: (task: Task) => void;
     onReorderTasks: (newTasks: Task[], movedTaskId?: string) => void;
+    isModalOpen?: boolean;
 }
 
 // Ensure TaskListTable receives the necessary props for DND
@@ -204,14 +205,14 @@ const SortableTaskRow = ({
     );
 };
 
-export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDeleteTask, onIndent, onOutdent, onReorderTasks }: GanttChartProps) => {
+export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDeleteTask, onIndent, onOutdent, onReorderTasks, isModalOpen = false }: GanttChartProps) => {
     const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
     const containerRef = React.useRef<HTMLDivElement>(null);
     const scrollContainerRef = React.useRef<HTMLDivElement>(null);
 
     const handleManualScroll = (direction: 'left' | 'right' | 'up' | 'down') => {
         const scrollAmountX = window.innerWidth * 0.05;
-        const scrollAmountY = window.innerHeight * 0.05;
+        const scrollAmountY = window.innerWidth * 0.05;
 
         const isHorizontal = direction === 'left' || direction === 'right';
         const isVertical = direction === 'up' || direction === 'down';
@@ -1027,7 +1028,7 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                             </button>
                         </div>
 
-                        <button onClick={() => onAddTask(selectedTaskId || undefined)} className={`flex items-center gap-2 bg-indigo-600 text-white px-3 py-1.5 rounded-md text-sm hover:bg-indigo-700 transition ml-2 whitespace-nowrap ${isCompact ? 'text-xs px-2 py-1' : ''}`}>
+                        <button onClick={() => onAddTask(selectedTaskId || undefined)} className={`hidden lg:flex items-center gap-2 bg-indigo-600 text-white px-3 py-1.5 rounded-md text-sm hover:bg-indigo-700 transition ml-2 whitespace-nowrap ${isCompact ? 'text-xs px-2 py-1' : ''}`}>
                             <span className="text-lg font-bold leading-none" style={{ marginTop: '-2px' }}>+</span>
                             <span className="hidden sm:inline">Nova Tarefa</span>
                         </button>
@@ -1237,9 +1238,9 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                     </div>
                 ))}
             </div>
-            {isMobile && (
+            {isMobile && !isModalOpen && (
                 <>
-                    <div className="fixed bottom-20 left-4 z-[9999]">
+                    <div className="fixed bottom-20 left-4 z-30">
                         <button
                             onClick={() => setShowTaskList(!showTaskList)}
                             className="p-3 bg-white shadow-xl rounded-full text-indigo-600 active:scale-90 transition-all border border-indigo-100"
@@ -1248,7 +1249,7 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                         </button>
                     </div>
 
-                    <div className="fixed bottom-20 right-4 z-[9999] flex flex-col items-center gap-0">
+                    <div className="fixed bottom-20 right-4 z-30 flex flex-col items-center gap-0">
                         {/* Up */}
                         <button
                             onTouchStart={() => startScrolling('up')}
