@@ -3,7 +3,7 @@ import "gantt-task-react/dist/index.css";
 import { Task } from '../types';
 import React, { useMemo, useState, useEffect } from 'react';
 import { checkIsHoliday } from '../lib/utils';
-import { Plus, Minus, ChevronLeft, ChevronRight, GripVertical, Trash2, Smartphone, Minimize2, ZoomOut, ZoomIn, PanelLeftClose, PanelLeftOpen, FolderOpen, FolderClosed, BarChart3, MoreHorizontal } from 'lucide-react';
+import { Plus, Minus, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, GripVertical, Trash2, Smartphone, Minimize2, ZoomOut, ZoomIn, PanelLeftClose, PanelLeftOpen, FolderOpen, FolderClosed, BarChart3, MoreHorizontal } from 'lucide-react';
 import {
     DndContext,
     closestCenter,
@@ -209,8 +209,12 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
     const containerRef = React.useRef<HTMLDivElement>(null);
     const scrollContainerRef = React.useRef<HTMLDivElement>(null);
 
-    const handleManualScroll = (direction: 'left' | 'right') => {
-        const scrollAmount = window.innerWidth * 0.1; // 10% of screen per frame (approx 6 screens/sec)
+    const handleManualScroll = (direction: 'left' | 'right' | 'up' | 'down') => {
+        const scrollAmountX = window.innerWidth * 0.1;
+        const scrollAmountY = window.innerHeight * 0.1;
+
+        const isHorizontal = direction === 'left' || direction === 'right';
+        const isVertical = direction === 'up' || direction === 'down';
 
         // 1. Try finding internal scrollables (library generated)
         if (containerRef.current) {
@@ -219,10 +223,20 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
 
             allDivs.forEach(el => {
                 const style = window.getComputedStyle(el);
-                // Check if element is horizontally scrollable
-                if ((style.overflowX === 'auto' || style.overflowX === 'scroll') && el.scrollWidth > el.clientWidth) {
+
+                // Horizontal Check
+                if (isHorizontal && (style.overflowX === 'auto' || style.overflowX === 'scroll') && el.scrollWidth > el.clientWidth) {
                     el.scrollBy({
-                        left: direction === 'right' ? scrollAmount : -scrollAmount,
+                        left: direction === 'right' ? scrollAmountX : -scrollAmountX,
+                        behavior: 'auto'
+                    });
+                    foundInternal = true;
+                }
+
+                // Vertical Check
+                if (isVertical && (style.overflowY === 'auto' || style.overflowY === 'scroll') && el.scrollHeight > el.clientHeight) {
+                    el.scrollBy({
+                        top: direction === 'down' ? scrollAmountY : -scrollAmountY,
                         behavior: 'auto'
                     });
                     foundInternal = true;
@@ -234,10 +248,17 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
 
         // 2. Fallback to our wrapper
         if (scrollContainerRef.current) {
-            scrollContainerRef.current.scrollBy({
-                left: direction === 'right' ? scrollAmount : -scrollAmount,
-                behavior: 'auto'
-            });
+            if (isHorizontal) {
+                scrollContainerRef.current.scrollBy({
+                    left: direction === 'right' ? scrollAmountX : -scrollAmountX,
+                    behavior: 'auto'
+                });
+            } else {
+                scrollContainerRef.current.scrollBy({
+                    top: direction === 'down' ? scrollAmountY : -scrollAmountY,
+                    behavior: 'auto'
+                });
+            }
         }
     };
 
@@ -250,7 +271,7 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
         }
     };
 
-    const startScrolling = (direction: 'left' | 'right') => {
+    const startScrolling = (direction: 'left' | 'right' | 'up' | 'down') => {
         stopScrolling();
 
         const scrollStep = () => {
@@ -1217,28 +1238,59 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                 ))}
             </div>
             {isMobile && (
-                <div className="fixed bottom-20 right-4 flex gap-3 z-[9999]">
+                <div className="fixed bottom-20 right-4 z-[9999] flex flex-col items-center gap-1">
+                    {/* Up */}
                     <button
-                        onTouchStart={() => startScrolling('left')}
+                        onTouchStart={() => startScrolling('up')}
                         onTouchEnd={stopScrolling}
-                        onMouseDown={() => startScrolling('left')}
+                        onMouseDown={() => startScrolling('up')}
                         onMouseUp={stopScrolling}
                         onMouseLeave={stopScrolling}
                         onContextMenu={(e) => e.preventDefault()}
-                        className="p-4 bg-indigo-600 shadow-xl rounded-full text-white active:scale-90 transition-all border-2 border-white/20"
+                        className="p-3 bg-indigo-600 shadow-xl rounded-full text-white active:scale-90 transition-all border-2 border-white/20"
                     >
-                        <ChevronLeft size={28} />
+                        <ChevronUp size={24} />
                     </button>
+
+                    <div className="flex gap-1">
+                        {/* Left */}
+                        <button
+                            onTouchStart={() => startScrolling('left')}
+                            onTouchEnd={stopScrolling}
+                            onMouseDown={() => startScrolling('left')}
+                            onMouseUp={stopScrolling}
+                            onMouseLeave={stopScrolling}
+                            onContextMenu={(e) => e.preventDefault()}
+                            className="p-3 bg-indigo-600 shadow-xl rounded-full text-white active:scale-90 transition-all border-2 border-white/20"
+                        >
+                            <ChevronLeft size={24} />
+                        </button>
+
+                        {/* Right */}
+                        <button
+                            onTouchStart={() => startScrolling('right')}
+                            onTouchEnd={stopScrolling}
+                            onMouseDown={() => startScrolling('right')}
+                            onMouseUp={stopScrolling}
+                            onMouseLeave={stopScrolling}
+                            onContextMenu={(e) => e.preventDefault()}
+                            className="p-3 bg-indigo-600 shadow-xl rounded-full text-white active:scale-90 transition-all border-2 border-white/20"
+                        >
+                            <ChevronRight size={24} />
+                        </button>
+                    </div>
+
+                    {/* Down */}
                     <button
-                        onTouchStart={() => startScrolling('right')}
+                        onTouchStart={() => startScrolling('down')}
                         onTouchEnd={stopScrolling}
-                        onMouseDown={() => startScrolling('right')}
+                        onMouseDown={() => startScrolling('down')}
                         onMouseUp={stopScrolling}
                         onMouseLeave={stopScrolling}
                         onContextMenu={(e) => e.preventDefault()}
-                        className="p-4 bg-indigo-600 shadow-xl rounded-full text-white active:scale-90 transition-all border-2 border-white/20"
+                        className="p-3 bg-indigo-600 shadow-xl rounded-full text-white active:scale-90 transition-all border-2 border-white/20"
                     >
-                        <ChevronRight size={28} />
+                        <ChevronDown size={24} />
                     </button>
                 </div>
             )}
