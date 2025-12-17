@@ -221,6 +221,17 @@ export const TaskForm = ({ task, resources, allTasks, onSave, onCancel, onSplit 
         };
     }, [formData, allTasks]);
 
+    const [isLandscapeMobile, setIsLandscapeMobile] = useState(false);
+
+    useEffect(() => {
+        const checkLandscape = () => {
+            setIsLandscapeMobile(window.innerHeight < 600 && window.innerWidth > window.innerHeight);
+        };
+        checkLandscape();
+        window.addEventListener('resize', checkLandscape);
+        return () => window.removeEventListener('resize', checkLandscape);
+    }, []);
+
     const handleSubmit = (e?: React.FormEvent | React.MouseEvent) => {
         if (e) e.preventDefault();
 
@@ -245,21 +256,21 @@ export const TaskForm = ({ task, resources, allTasks, onSave, onCancel, onSplit 
 
 
     return (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm p-4 animate-in fade-in zoom-in-95 duration-200">
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
-                <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[99999] p-0 md:p-4" style={{ zIndex: 99999 }}>
+            <div className={`bg-white shadow-2xl w-full overflow-hidden flex flex-col ${isLandscapeMobile ? 'h-full max-h-full rounded-none max-w-none' : 'max-w-2xl max-h-[90vh] rounded-xl'}`}>
+                <div className={`px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50 ${isLandscapeMobile ? 'py-2' : ''}`}>
                     <h2 className="text-xl font-bold text-gray-800">{task ? 'Editar Tarefa' : 'Nova Tarefa'}</h2>
                     <button onClick={onCancel} className="text-gray-400 hover:text-gray-600">
                         <X size={24} />
                     </button>
                 </div>
 
-                <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-6">
+                <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 md:space-y-6">
                     {/* Basic Info */}
                     <div className="space-y-4">
                         <h3 className="font-semibold text-gray-900 border-b pb-2 mb-4">Informações Gerais</h3>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div className="md:col-span-2">
+                        <div className={`grid gap-4 ${isLandscapeMobile ? 'grid-cols-2' : 'grid-cols-1 md:grid-cols-2'}`}>
+                            <div className={isLandscapeMobile ? 'col-span-1' : 'md:col-span-2'}>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Nome da Tarefa</label>
                                 <input
                                     type="text"

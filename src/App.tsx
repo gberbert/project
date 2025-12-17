@@ -223,7 +223,7 @@ function App() {
     const [isConnected, setIsConnected] = useState(false);
     const [connectionError, setConnectionError] = useState<string | null>(null);
     const [isOnline, setIsOnline] = useState(navigator.onLine);
-    const [currentView, setCurrentView] = useState('gantt');
+    const [currentView, setCurrentView] = useState('clients_manage');
     const [ganttTab, setGanttTab] = useState<'schedule' | 'tasks'>('schedule');
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
     const [isStabilizationModalOpen, setIsStabilizationModalOpen] = useState(false);

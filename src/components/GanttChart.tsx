@@ -1158,7 +1158,10 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                                 onDateChange={undefined}
                                 onProgressChange={undefined}
                                 onDoubleClick={undefined}
-                                onSelect={undefined}
+                                onSelect={(task) => {
+                                    const original = tasks.find(t => t.id === task.id);
+                                    if (original) onEditTask(original);
+                                }}
                                 listCellWidth={(showTaskList && !isMobile) ? listCellWidth : ""}
                                 columnWidth={columnWidth}
                                 rowHeight={rowHeight}
