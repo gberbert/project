@@ -258,7 +258,7 @@ export const EstimateModal = ({ isOpen, onClose, onApplyEstimate, user, clientCo
                 {
                     id: 'welcome',
                     role: 'assistant',
-                    content: 'Olá! Sou o Antigravity Architect. Posso ajudar você a estruturar e estimar seu projeto de software. Descreva sua ideia ou faça upload de documentos para começarmos.'
+                    content: 'Olá! Sou o Assistente UERJ-FAF. Posso ajudar você a estruturar e estimar seu projeto de software. Descreva sua ideia ou faça upload de documentos para começarmos.'
                 }
             ]);
             // Reset Refinement State
@@ -601,7 +601,7 @@ export const EstimateModal = ({ isOpen, onClose, onApplyEstimate, user, clientCo
                             <Sparkles className="text-indigo-600" size={24} />
                         </div>
                         <div>
-                            <h2 className="text-lg font-bold text-gray-900 leading-tight">Antigravity Architect</h2>
+                            <h2 className="text-lg font-bold text-gray-900 leading-tight">UERJ-FAF 2025</h2>
                             <p className="text-xs text-gray-500 font-medium">{isConfigured ? 'IA Pronta para planejar' : 'Configuração necessária'}</p>
                         </div>
                     </div>

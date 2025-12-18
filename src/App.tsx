@@ -247,6 +247,10 @@ function App() {
     const [selectedProjectId, setSelectedProjectId] = useState<string>('1');
     const [clientTasks, setClientTasks] = useState<Task[]>([]);
 
+    useEffect(() => {
+        document.title = "UERJ-FAF 2025";
+    }, []);
+
 
 
     useEffect(() => {

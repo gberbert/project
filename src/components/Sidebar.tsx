@@ -154,9 +154,17 @@ export const Sidebar = ({ activeView, onNavigate, className = '', clients = [], 
         <aside className={`h-full bg-slate-900 text-white flex flex-col transition-all duration-300 flex-shrink-0 border-r border-slate-800 ${isCollapsed ? 'w-20' : 'w-20 lg:w-64'} ${className}`}>
             {/* Logo */}
             <div className={`h-16 flex items-center ${isCollapsed ? 'justify-center' : 'justify-center lg:justify-between lg:px-6'} border-b border-slate-800 bg-slate-950/50 shrink-0 relative group`}>
-                <div className="flex items-center">
-                    <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center font-bold text-xl text-white shadow-lg shadow-indigo-500/20">A</div>
-                    {!isCollapsed && <span className="ml-3 font-bold text-lg tracking-tight text-white animate-in fade-in slide-in-from-left-2">Antigravity</span>}
+                <div className={`flex items-center ${isCollapsed ? 'justify-center' : ''}`}>
+                    <img
+                        src="/logo.png"
+                        alt="Logo"
+                        className={`object-contain transition-all duration-300 ${isCollapsed ? 'h-8 w-8' : 'h-8 w-auto'}`}
+                    />
+                    {!isCollapsed && (
+                        <span className="ml-3 font-bold text-lg tracking-tight text-white animate-in fade-in slide-in-from-left-2 whitespace-nowrap">
+                            UERJ-FAF 2025
+                        </span>
+                    )}
                 </div>
 
                 {/* Collapse Toggle (Desktop Only) */}

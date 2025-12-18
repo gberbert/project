@@ -63,10 +63,9 @@ export const LoginView = () => {
     return (
         <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8 font-sans">
             <div className="sm:mx-auto sm:w-full sm:max-w-md">
-                <div className="flex justify-center">
-                    <div className="h-12 w-12 rounded-xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-200">
-                        <span className="text-white font-bold text-2xl">A</span>
-                    </div>
+                <div className="flex flex-col items-center justify-center mb-6">
+                    <img src="/logo.png" alt="Logo" className="h-24 w-auto object-contain mb-4" />
+                    <span className="text-xl font-bold text-gray-900 tracking-tight">UERJ-FAF 2025</span>
                 </div>
                 <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900 tracking-tight">
                     {isLogin ? 'Bem-vindo de volta' : 'Crie sua conta'}
