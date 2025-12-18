@@ -38,11 +38,35 @@ export interface Task {
     };
 }
 
+// Strategic / AI Planning Types
+export interface ClientResponsibility {
+    action_item: string;
+    deadline_description: string;
+    impact: 'BLOCKER' | 'HIGH' | 'LOW';
+}
+
+export interface RaciItem {
+    activity_group: string;
+    responsible: string;
+    accountable: string;
+    consulted: string;
+    informed: string;
+}
+
+// Helper for AI Documentation Structure
+export interface AIDocumentation {
+    context_overview: string;      // Markdown
+    technical_solution: string;    // Markdown
+    implementation_steps: string;  // Markdown
+    testing_strategy: string;      // Markdown
+}
+
 export interface Project {
     id: string;
     name: string;
     description?: string;
     startDate: Date;
+    endDate?: Date;
     createdAt: Date;
     ownerId: string; // User UID
     clientId?: string; // Link to Client
@@ -54,6 +78,12 @@ export interface Project {
     netValue?: number; // Valor Líquido
     aiConfidence?: number; // 0-1 Score
     aiSummary?: string; // Breve descrição da IA
+
+    // Comprehensive Planning Data
+    documentation?: AIDocumentation;
+    technicalPremises?: string[];
+    clientResponsibilities?: ClientResponsibility[];
+    raciMatrix?: RaciItem[];
 }
 
 // Helper for UI view

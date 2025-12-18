@@ -16,27 +16,21 @@ import { useProjectLogic } from './hooks/useProjectLogic';
 import { isAfter, isWeekend, addDays, differenceInDays, addBusinessDays } from 'date-fns';
 
 import { Task, Resource, Project } from './types';
-import { Database, CloudOff, Menu, Sparkles, CheckCircle, Activity, Lock, LogOut, ChevronDown } from 'lucide-react';
-import { ProjectService } from './services/projectService';
+import { Database, CloudOff, Menu, Sparkles, CheckCircle, Activity, Lock, LogOut, ChevronDown, FileText, CheckSquare, Target } from 'lucide-react';
+import { ProjectService, getNextWorkingDay } from './services/projectService';
 import { StabilizationModal } from './components/StabilizationModal';
 import { useAuth } from './contexts/AuthContext';
 import { LoginView } from './components/LoginView';
+import { MarkdownRenderer } from './components/MarkdownRenderer';
+import { TopMenuBar } from './components/TopMenuBar';
+import { parseProjectXML } from './services/ProjectImportService';
+import { exportProjectToXML } from './services/ProjectExportService';
+import { calculateBusinessDays } from './lib/utils';
 
 // --- Stats Helper ---
 const countBusinessDays = (startDate: Date | undefined, endDate: Date | undefined) => {
     if (!startDate || !endDate) return 0;
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    start.setHours(12, 0, 0, 0);
-    end.setHours(12, 0, 0, 0);
-    if (isAfter(start, end)) return 0;
-    let count = 0;
-    let current = start;
-    while (current <= end) {
-        if (!isWeekend(current)) count++;
-        current = addDays(current, 1);
-    }
-    return count;
+    return calculateBusinessDays(startDate, endDate);
 };
 
 const calculateProjectStats = (tasks: Task[], resources: Resource[]) => {
@@ -49,12 +43,13 @@ const calculateProjectStats = (tasks: Task[], resources: Resource[]) => {
 
     let totalCost = 0;
     let totalRealCost = 0;
-
-    // EVM Accumulators
     let totalEarnedValue = 0;
     let totalPlannedValue = 0;
 
-    // Filter to LEAF tasks
+    let totalDurationWeight = 0;
+    let totalEarnedDuration = 0;
+    let totalPlannedDuration = 0;
+
     const leafTasks = tasks.filter(t => t.type !== 'project');
 
     if (leafTasks.length === 0) return { totalCost: 0, totalRealCost: 0, progress: 0, plannedProgress: 0, totalDuration: 0, totalRealDuration: 0, spi: 0, cpi: 0 };
@@ -76,7 +71,30 @@ const calculateProjectStats = (tasks: Task[], resources: Resource[]) => {
             if (task.realEnd.getTime() > maxRealEnd.getTime()) maxRealEnd = task.realEnd;
         }
 
-        // Calculate Cost Interest (Hourly Rate)
+        // Common Duration Calculation
+        const durationDays = Math.max(1, countBusinessDays(task.start, task.end));
+
+        // PV (Planned Value) Percentage - Time Based
+        let taskPVPercent = 0;
+        const taskStart = new Date(task.start); taskStart.setHours(12, 0, 0, 0);
+        const taskEnd = new Date(task.end); taskEnd.setHours(12, 0, 0, 0);
+
+        if (isAfter(taskStart, today)) {
+            taskPVPercent = 0; // Future
+        } else if (isAfter(today, taskEnd)) {
+            taskPVPercent = 1; // Past deadline
+        } else {
+            // In progress window
+            const elapsedTaskDays = countBusinessDays(taskStart, today);
+            taskPVPercent = Math.min(1, Math.max(0, elapsedTaskDays / durationDays));
+        }
+
+        // Accumulate Duration Stats (Fallback/Non-Financial)
+        totalDurationWeight += durationDays;
+        totalEarnedDuration += durationDays * ((task.progress || 0) / 100);
+        totalPlannedDuration += durationDays * taskPVPercent;
+
+        // Calculate Cost Interest (Financial)
         let rate = task.hourlyRate || 0;
         if (!rate && task.resourceId && resources.length > 0) {
             const res = resources.find(r => r.id === task.resourceId);
@@ -84,14 +102,11 @@ const calculateProjectStats = (tasks: Task[], resources: Resource[]) => {
         }
 
         if (rate > 0) {
-            const days = Math.max(1, countBusinessDays(task.start, task.end));
-            const budget = days * 8 * rate; // BAC (Budget At Completion) for this task
-
+            const budget = durationDays * 8 * rate; // BAC
             totalCost += budget;
 
-            // EV (Earned Value) = Budget * %Complete
-            const taskEV = budget * ((task.progress || 0) / 100);
-            totalEarnedValue += taskEV;
+            // EV (Earned Value)
+            totalEarnedValue += budget * ((task.progress || 0) / 100);
 
             // AC (Actual Cost)
             if (task.realStart && task.realEnd) {
@@ -99,21 +114,7 @@ const calculateProjectStats = (tasks: Task[], resources: Resource[]) => {
                 totalRealCost += rDays * 8 * rate;
             }
 
-            // PV (Planned Value) = Budget * %Scheduled
-            let taskPVPercent = 0;
-            const taskStart = new Date(task.start); taskStart.setHours(12, 0, 0, 0);
-            const taskEnd = new Date(task.end); taskEnd.setHours(12, 0, 0, 0);
-
-            if (isAfter(taskStart, today)) {
-                taskPVPercent = 0; // Future
-            } else if (isAfter(today, taskEnd)) {
-                taskPVPercent = 1; // Past deadline
-            } else {
-                // In progress window
-                const totalTaskDays = Math.max(1, countBusinessDays(taskStart, taskEnd));
-                const elapsedTaskDays = countBusinessDays(taskStart, today);
-                taskPVPercent = Math.min(1, Math.max(0, elapsedTaskDays / totalTaskDays));
-            }
+            // PV (Planned Value)
             totalPlannedValue += budget * taskPVPercent;
         }
     });
@@ -125,17 +126,28 @@ const calculateProjectStats = (tasks: Task[], resources: Resource[]) => {
     }
 
     // Consolidated Metrics
-    // Progress is now Weighted by Value (EV / BAC) instead of simple duration
-    const progress = totalCost > 0 ? Math.round((totalEarnedValue / totalCost) * 100) : 0;
+    // If Cost exists, use EVM (Weighted by Cost). Else use Duration Weighting.
+    let progress = 0;
+    let plannedProgress = 0;
 
-    // Planned Progress (PV / BAC)
-    const plannedProgress = totalCost > 0 ? Math.round((totalPlannedValue / totalCost) * 100) : 0;
+    if (totalCost > 0) {
+        progress = Math.round((totalEarnedValue / totalCost) * 100);
+        plannedProgress = Math.round((totalPlannedValue / totalCost) * 100);
+    } else if (totalDurationWeight > 0) {
+        progress = Math.round((totalEarnedDuration / totalDurationWeight) * 100);
+        plannedProgress = Math.round((totalPlannedDuration / totalDurationWeight) * 100);
+    }
 
-    // CPI = EV / AC
+    // CPI = EV / AC (Financial Only)
     const cpi = totalRealCost > 0 ? totalEarnedValue / totalRealCost : 1;
 
-    // SPI = EV / PV
-    const spi = totalPlannedValue > 0 ? totalEarnedValue / totalPlannedValue : 1;
+    // SPI = EV / PV (Financial or Duration based)
+    let spi = 1;
+    if (totalPlannedValue > 0) {
+        spi = totalEarnedValue / totalPlannedValue;
+    } else if (totalPlannedDuration > 0) {
+        spi = totalEarnedDuration / totalPlannedDuration;
+    }
 
     return {
         totalCost,
@@ -145,7 +157,9 @@ const calculateProjectStats = (tasks: Task[], resources: Resource[]) => {
         totalDuration: Math.max(0, totalDurationBusinessDays),
         totalRealDuration: Math.max(0, totalRealDurationBusinessDays),
         spi,
-        cpi
+        cpi,
+        startDate: minStart.getTime() !== 8640000000000000 ? minStart : undefined,
+        endDate: maxEnd.getTime() !== -8640000000000000 ? maxEnd : undefined
     };
 };
 // --------------------
@@ -224,7 +238,7 @@ function App() {
     const [connectionError, setConnectionError] = useState<string | null>(null);
     const [isOnline, setIsOnline] = useState(navigator.onLine);
     const [currentView, setCurrentView] = useState('clients_manage');
-    const [ganttTab, setGanttTab] = useState<'schedule' | 'tasks'>('schedule');
+    const [ganttTab, setGanttTab] = useState<'schedule' | 'tasks' | 'context' | 'premises'>('schedule');
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
     const [isStabilizationModalOpen, setIsStabilizationModalOpen] = useState(false);
     const [isEstimateModalOpen, setIsEstimateModalOpen] = useState(false);
@@ -376,26 +390,59 @@ function App() {
 
     // Handlers
     const onTaskChangeWrapper = (updatedTask: Task) => {
-        const oldTask = tasks.find(t => t.id === updatedTask.id);
-        if (oldTask && (oldTask.start.getTime() !== updatedTask.start.getTime() || oldTask.end.getTime() !== updatedTask.end.getTime())) {
-            handleMoveTask(updatedTask.id, updatedTask.start, updatedTask.end);
-        } else {
-            updateTask(updatedTask);
+        // Enforce Working Days (Snap to Valid Day if Weekend OR Holiday)
+        let newStart = new Date(updatedTask.start);
+        let newEnd = new Date(updatedTask.end);
+
+        // Check if Start is valid
+        const validStart = getNextWorkingDay(newStart);
+
+        // If it changed, apply delta to shift the whole task
+        if (validStart.getTime() !== newStart.getTime()) {
+            const deltaMs = validStart.getTime() - newStart.getTime();
+            newStart = validStart;
+            newEnd = new Date(newEnd.getTime() + deltaMs);
         }
 
-        ProjectService.updateTask(updatedTask.id, {
-            start: updatedTask.start,
-            end: updatedTask.end,
-            realStart: (updatedTask.realStart || null) as any,
-            realEnd: (updatedTask.realEnd || null) as any,
-            progress: updatedTask.progress || 0,
-            name: updatedTask.name || '',
-            dependencies: updatedTask.dependencies || [],
-            resourceId: updatedTask.resourceId || '',
-            type: updatedTask.type || 'task',
-            parent: updatedTask.parent
+        // Apply snapped dates
+        const taskToSave = {
+            ...updatedTask,
+            start: newStart,
+            end: newEnd
+        };
+
+        const oldTask = tasks.find(t => t.id === taskToSave.id);
+        if (oldTask && (oldTask.start.getTime() !== taskToSave.start.getTime() || oldTask.end.getTime() !== taskToSave.end.getTime())) {
+            handleMoveTask(taskToSave.id, taskToSave.start, taskToSave.end);
+        } else {
+            updateTask(taskToSave);
+        }
+
+        ProjectService.updateTask(taskToSave.id, {
+            start: taskToSave.start,
+            end: taskToSave.end,
+            realStart: (taskToSave.realStart || null) as any,
+            realEnd: (taskToSave.realEnd || null) as any,
+            progress: taskToSave.progress || 0,
+            name: taskToSave.name || '',
+            dependencies: taskToSave.dependencies || [],
+            resourceId: taskToSave.resourceId || '',
+            type: taskToSave.type || 'task',
+            parent: taskToSave.parent
+        }).then(() => {
+            // Auto-schedule dependencies
+            // We need the full list of tasks for this project with the NEW state of the updated task
+            if (selectedProjectId) {
+                const projectTasks = dbTasks
+                    .filter(t => t.projectId === selectedProjectId)
+                    .map(t => t.id === taskToSave.id ? taskToSave : t);
+
+                ProjectService.recalculateProjectSchedule(selectedProjectId, projectTasks)
+                    .catch(e => console.error("Auto-schedule failed:", e));
+            }
         }).catch(e => console.error("Failed to update task in DB:", e));
     }
+
 
 
     const onAddTaskWrapper = async (newTask: Task, insertOverride?: string | null) => {
@@ -546,7 +593,43 @@ function App() {
         }
     };
 
+
+
+    const handleImportProject = async (file: File) => {
+        try {
+            const importedTasks = await parseProjectXML(file);
+            console.log("Tarefas Importadas:", importedTasks);
+
+            if (selectedProjectId) {
+                if (confirm(`Importar "${file.name}" substituirá todas as tarefas do projeto atual. Deseja continuar?`)) {
+                    const activeProject = projects.find(p => p.id === selectedProjectId);
+                    if (activeProject) {
+                        await ProjectService.replaceProjectTasks(activeProject.id, importedTasks);
+                        alert(`Sucesso! ${importedTasks.length} tarefas importadas.`);
+                    }
+                }
+            } else {
+                alert("Por favor, abra um projeto antes de importar um arquivo .XML do MS Project.");
+            }
+
+        } catch (e: any) {
+            console.error(e);
+            alert("Erro ao importar projeto: " + e.message);
+        }
+    };
+
+    const handleExportProject = () => {
+        if (!selectedProjectId) return;
+        const project = projects.find(p => p.id === selectedProjectId);
+        if (!project) return;
+
+        // Filter tasks for current project. dbTasks is the source of truth from subscription.
+        const tasksToExport = dbTasks.filter(t => t.projectId === selectedProjectId);
+        exportProjectToXML(project, tasksToExport);
+    };
+
     const handleUpdateClient = async (updatedClient: any) => {
+        // ...
         try {
             const { id, ...data } = updatedClient;
 
@@ -702,7 +785,7 @@ function App() {
     const handleApplyEstimate = async (estimate: EstimateResult) => {
         if (!selectedProjectId) return;
 
-        const projectStart = new Date();
+        let projectStart = getNextWorkingDay(new Date());
         const prefix = `ai-${Date.now()}-`;
         const idMap: Record<string, string> = {};
         // const roleMap: Record<string, string> = {};
@@ -864,7 +947,11 @@ function App() {
         if (selectedProjectId) {
             const updates = {
                 aiConfidence: estimate.confidence_score,
-                aiSummary: estimate.description
+                aiSummary: estimate.description,
+                documentation: estimate.documentation,
+                technicalPremises: estimate.strategic_planning?.technical_premises,
+                clientResponsibilities: estimate.strategic_planning?.client_responsibilities,
+                raciMatrix: estimate.strategic_planning?.raci_matrix,
             };
             if (isConnected) {
                 await ProjectService.updateProject(selectedProjectId, updates);
@@ -1013,6 +1100,7 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
             />
 
             <div className="flex-1 flex flex-col min-w-0">
+                <TopMenuBar onImport={handleImportProject} onExport={selectedProjectId ? handleExportProject : undefined} />
                 {!isOnline && (
                     <div className="bg-red-600 text-white px-4 py-3 text-center text-sm font-bold flex justify-center items-center gap-2 shadow-md animate-in slide-in-from-top-2 z-50 transition-all">
                         <CloudOff size={20} />
@@ -1020,7 +1108,7 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
                     </div>
                 )}
                 {/* Header */}
-                <header className="bg-white border-b border-gray-200 h-16 px-8 flex items-center justify-between z-40">
+                <header className="bg-white border-b border-gray-200 h-12 px-4 flex items-center justify-between z-40">
                     <div className="flex items-center gap-4">
                         <button
                             className="lg:hidden p-2 -ml-2 text-gray-600"
@@ -1225,10 +1313,10 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
                                     }
                                 }}
                             />
-                            <div className="flex items-end mb-6 overflow-x-auto no-scrollbar pl-1">
+                            <div className="flex items-end mb-0 overflow-x-auto no-scrollbar pl-1">
                                 <button
                                     onClick={() => setGanttTab('schedule')}
-                                    className={`px-4 py-2 lg:px-6 lg:py-3 text-xs lg:text-sm font-bold rounded-t-lg transition-all border border-b-0 relative ${ganttTab === 'schedule'
+                                    className={`flex items-center gap-2 px-4 py-2 lg:px-6 lg:py-3 text-xs lg:text-sm font-bold rounded-t-lg transition-all border border-b-0 relative ${ganttTab === 'schedule'
                                         ? 'bg-white text-indigo-600 border-gray-200 shadow-[0_-2px_10px_rgba(0,0,0,0.02)] z-10 scale-105 origin-bottom'
                                         : 'bg-gray-50 text-gray-400 border-transparent hover:bg-gray-100 -mr-2 lg:-mr-0'
                                         }`}
@@ -1237,18 +1325,39 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
                                 </button>
                                 <button
                                     onClick={() => setGanttTab('tasks')}
-                                    className={`px-4 py-2 lg:px-6 lg:py-3 text-xs lg:text-sm font-bold rounded-t-lg transition-all border border-b-0 relative ${ganttTab === 'tasks'
+                                    className={`flex items-center gap-2 px-4 py-2 lg:px-6 lg:py-3 text-xs lg:text-sm font-bold rounded-t-lg transition-all border border-b-0 relative ${ganttTab === 'tasks'
                                         ? 'bg-white text-indigo-600 border-gray-200 shadow-[0_-2px_10px_rgba(0,0,0,0.02)] z-10 scale-105 origin-bottom'
-                                        : 'bg-gray-50 text-gray-400 border-transparent hover:bg-gray-100'
+                                        : 'bg-gray-50 text-gray-400 border-transparent hover:bg-gray-100 -mr-2 lg:-mr-0'
                                         }`}
                                 >
                                     Lista de Tarefas
                                 </button>
+                                <button
+                                    onClick={() => setGanttTab('context')}
+                                    className={`flex items-center gap-2 px-4 py-2 lg:px-6 lg:py-3 text-xs lg:text-sm font-bold rounded-t-lg transition-all border border-b-0 relative ${ganttTab === 'context'
+                                        ? 'bg-white text-indigo-600 border-gray-200 shadow-[0_-2px_10px_rgba(0,0,0,0.02)] z-10 scale-105 origin-bottom'
+                                        : 'bg-gray-50 text-gray-400 border-transparent hover:bg-gray-100 -mr-2 lg:-mr-0'
+                                        }`}
+                                >
+                                    <FileText size={16} />
+                                    Contexto
+                                </button>
+                                <button
+                                    onClick={() => setGanttTab('premises')}
+                                    className={`flex items-center gap-2 px-4 py-2 lg:px-6 lg:py-3 text-xs lg:text-sm font-bold rounded-t-lg transition-all border border-b-0 relative ${ganttTab === 'premises'
+                                        ? 'bg-white text-indigo-600 border-gray-200 shadow-[0_-2px_10px_rgba(0,0,0,0.02)] z-10 scale-105 origin-bottom'
+                                        : 'bg-gray-50 text-gray-400 border-transparent hover:bg-gray-100'
+                                        }`}
+                                >
+                                    <CheckSquare size={16} />
+                                    Premissas & RACI
+                                </button>
                                 {/* Bottom border filler */}
                                 <div className="flex-1 border-b border-gray-200 h-px"></div>
                             </div>
+
                             {ganttTab === 'schedule' && (
-                                <div className="bg-white p-1 lg:p-6 rounded-xl shadow-sm border border-gray-100 h-[650px] flex flex-col mt-4 lg:mt-8">
+                                <div className="bg-white p-0 rounded-xl rounded-tl-none shadow-sm border border-gray-100 h-[650px] flex flex-col mt-0 gantt-landscape-container">
                                     <div className="flex-1 overflow-hidden relative">
                                         <GanttChart
                                             tasks={projectTasks}
@@ -1265,6 +1374,7 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
                                     </div>
                                 </div>
                             )}
+
                             {ganttTab === 'tasks' && (
                                 <TaskListView
                                     tasks={projectTasks}
@@ -1273,6 +1383,193 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
                                     isConnected={isConnected}
                                 />
                             )}
+
+                            {ganttTab === 'context' && (() => {
+                                const activeProject = projects.find(p => p.id === selectedProjectId);
+                                return (
+                                    <div className="bg-gray-50/50 p-6 rounded-xl border border-gray-100 animate-in fade-in slide-in-from-bottom-2 duration-300 h-[650px] overflow-y-auto custom-scrollbar">
+                                        {activeProject?.documentation ? (
+                                            <div className="max-w-6xl mx-auto space-y-6">
+
+                                                {/* Header Banner */}
+                                                <div className="bg-gradient-to-r from-indigo-600 to-indigo-800 rounded-2xl p-6 text-white shadow-lg mb-8">
+                                                    <h3 className="text-2xl font-bold flex items-center gap-3">
+                                                        <FileText size={28} />
+                                                        Documentação do Projeto
+                                                    </h3>
+                                                    <p className="text-indigo-100 mt-2 max-w-2xl">
+                                                        Visão estratégica, arquitetura técnica e plano de qualidade definidos pela Inteligência Artificial.
+                                                    </p>
+                                                </div>
+
+                                                {/* Strategic Context & Tech Solution - Grid */}
+                                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                                    <div className="bg-white p-6 rounded-2xl border border-indigo-100 shadow-sm hover:shadow-md transition-shadow">
+                                                        <div className="flex items-center gap-3 mb-4 pb-3 border-b border-gray-100">
+                                                            <div className="p-2 bg-indigo-50 rounded-lg text-indigo-600">
+                                                                <Target size={24} />
+                                                            </div>
+                                                            <h4 className="text-lg font-bold text-gray-900">Visão Geral e Contexto</h4>
+                                                        </div>
+                                                        <MarkdownRenderer content={activeProject.documentation.context_overview} className="text-sm" />
+                                                    </div>
+
+                                                    <div className="bg-white p-6 rounded-2xl border border-blue-100 shadow-sm hover:shadow-md transition-shadow">
+                                                        <div className="flex items-center gap-3 mb-4 pb-3 border-b border-gray-100">
+                                                            <div className="p-2 bg-blue-50 rounded-lg text-blue-600">
+                                                                <Database size={24} />
+                                                            </div>
+                                                            <h4 className="text-lg font-bold text-gray-900">Solução Técnica</h4>
+                                                        </div>
+                                                        <MarkdownRenderer content={activeProject.documentation.technical_solution} className="text-sm" />
+                                                    </div>
+                                                </div>
+
+                                                {/* Implementation & Testing - Grid */}
+                                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                                    <div className="bg-white p-6 rounded-2xl border border-green-100 shadow-sm hover:shadow-md transition-shadow">
+                                                        <div className="flex items-center gap-3 mb-4 pb-3 border-b border-gray-100">
+                                                            <div className="p-2 bg-green-50 rounded-lg text-green-600">
+                                                                <Activity size={24} />
+                                                            </div>
+                                                            <h4 className="text-lg font-bold text-gray-900">Planos de Implementação</h4>
+                                                        </div>
+                                                        <MarkdownRenderer content={activeProject.documentation.implementation_steps} className="text-sm" />
+                                                    </div>
+
+                                                    <div className="bg-white p-6 rounded-2xl border border-teal-100 shadow-sm hover:shadow-md transition-shadow">
+                                                        <div className="flex items-center gap-3 mb-4 pb-3 border-b border-gray-100">
+                                                            <div className="p-2 bg-teal-50 rounded-lg text-teal-600">
+                                                                <CheckCircle size={24} />
+                                                            </div>
+                                                            <h4 className="text-lg font-bold text-gray-900">Estratégia de QA & Testes</h4>
+                                                        </div>
+                                                        <MarkdownRenderer content={activeProject.documentation.testing_strategy} className="text-sm" />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="flex flex-col items-center justify-center h-full text-center text-gray-500 space-y-4">
+                                                <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center">
+                                                    <FileText size={40} className="text-gray-400" />
+                                                </div>
+                                                <div>
+                                                    <p className="text-xl font-bold text-gray-700">Documentação não disponível</p>
+                                                    <p className="text-sm mt-2 max-w-sm mx-auto text-gray-400">
+                                                        Este projeto não possui dados de contexto gerados pela IA. Crie uma nova estimativa para gerar este conteúdo automaticamente.
+                                                    </p>
+                                                </div>
+                                                {(isAdmin || user?.canUseAI) && (
+                                                    <button
+                                                        onClick={handleEstimateClick}
+                                                        className="mt-4 px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium flex items-center gap-2"
+                                                    >
+                                                        <Sparkles size={16} />
+                                                        Gerar Documentação com IA
+                                                    </button>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })()}
+
+                            {ganttTab === 'premises' && (() => {
+                                const activeProject = projects.find(p => p.id === selectedProjectId);
+                                return (
+                                    <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                                        {(activeProject?.technicalPremises || activeProject?.clientResponsibilities || activeProject?.raciMatrix) ? (
+                                            <div className="space-y-8 max-w-5xl mx-auto">
+                                                {/* TECH PREMISES */}
+                                                {activeProject.technicalPremises && activeProject.technicalPremises.length > 0 && (
+                                                    <section>
+                                                        <h4 className="font-bold text-gray-900 mb-3 text-lg">Premissas Técnicas</h4>
+                                                        <ul className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                            {activeProject.technicalPremises.map((premise, idx) => (
+                                                                <li key={idx} className="bg-amber-50 text-amber-900 p-3 rounded-lg border border-amber-100 flex items-start gap-2 text-sm">
+                                                                    <div className="mt-1 min-w-[6px] h-1.5 rounded-full bg-amber-400" />
+                                                                    {premise}
+                                                                </li>
+                                                            ))}
+                                                        </ul>
+                                                    </section>
+                                                )}
+
+                                                {/* CLIENT RESPONSIBILITIES */}
+                                                {activeProject.clientResponsibilities && activeProject.clientResponsibilities.length > 0 && (
+                                                    <section>
+                                                        <h4 className="font-bold text-gray-900 mb-3 text-lg">Responsabilidades do Cliente</h4>
+                                                        <div className="overflow-hidden rounded-xl border border-gray-200">
+                                                            <table className="w-full text-sm text-left">
+                                                                <thead className="bg-gray-50 text-gray-700 font-semibold border-b border-gray-200">
+                                                                    <tr>
+                                                                        <th className="px-4 py-3">Ação Necessária</th>
+                                                                        <th className="px-4 py-3">Prazo Limite</th>
+                                                                        <th className="px-4 py-3 text-center">Impacto</th>
+                                                                    </tr>
+                                                                </thead>
+                                                                <tbody className="divide-y divide-gray-100">
+                                                                    {activeProject.clientResponsibilities.map((resp, idx) => (
+                                                                        <tr key={idx} className="hover:bg-gray-50/50">
+                                                                            <td className="px-4 py-3 font-medium text-gray-800">{resp.action_item}</td>
+                                                                            <td className="px-4 py-3 text-gray-600">{resp.deadline_description}</td>
+                                                                            <td className="px-4 py-3 text-center">
+                                                                                <span className={`inline-flex px-2 py-1 rounded-md text-xs font-bold border ${resp.impact === 'BLOCKER' ? 'bg-red-50 text-red-700 border-red-200' :
+                                                                                    resp.impact === 'HIGH' ? 'bg-orange-50 text-orange-700 border-orange-200' :
+                                                                                        'bg-blue-50 text-blue-700 border-blue-200'
+                                                                                    }`}>
+                                                                                    {resp.impact}
+                                                                                </span>
+                                                                            </td>
+                                                                        </tr>
+                                                                    ))}
+                                                                </tbody>
+                                                            </table>
+                                                        </div>
+                                                    </section>
+                                                )}
+
+                                                {/* RACI */}
+                                                {activeProject.raciMatrix && activeProject.raciMatrix.length > 0 && (
+                                                    <section>
+                                                        <h4 className="font-bold text-gray-900 mb-3 text-lg">Matriz RACI Sugerida</h4>
+                                                        <div className="overflow-x-auto rounded-xl border border-gray-200">
+                                                            <table className="w-full text-sm text-center">
+                                                                <thead className="bg-gray-800 text-white font-medium">
+                                                                    <tr>
+                                                                        <th className="px-4 py-3 text-left w-1/3">Atividade / Entrega</th>
+                                                                        <th className="px-2 py-3 w-[15%] bg-gray-700" title="Responsible (Quem Executa)">R</th>
+                                                                        <th className="px-2 py-3 w-[15%] bg-gray-700" title="Accountable (Quem Aprova)">A</th>
+                                                                        <th className="px-2 py-3 w-[15%] bg-gray-700" title="Consulted (Quem é Consultado)">C</th>
+                                                                        <th className="px-2 py-3 w-[15%] bg-gray-700" title="Informed (Quem é Informado)">I</th>
+                                                                    </tr>
+                                                                </thead>
+                                                                <tbody className="divide-y divide-gray-200">
+                                                                    {activeProject.raciMatrix.map((row, idx) => (
+                                                                        <tr key={idx} className="hover:bg-gray-50">
+                                                                            <td className="px-4 py-3 text-left font-medium text-gray-900">{row.activity_group}</td>
+                                                                            <td className="px-2 py-3 text-gray-600 bg-blue-50/30">{row.responsible}</td>
+                                                                            <td className="px-2 py-3 text-gray-600 font-semibold bg-indigo-50/30">{row.accountable}</td>
+                                                                            <td className="px-2 py-3 text-gray-500">{row.consulted}</td>
+                                                                            <td className="px-2 py-3 text-gray-400">{row.informed}</td>
+                                                                        </tr>
+                                                                    ))}
+                                                                </tbody>
+                                                            </table>
+                                                        </div>
+                                                    </section>
+                                                )}
+                                            </div>
+                                        ) : (
+                                            <div className="text-center py-16 text-gray-500">
+                                                <CheckSquare size={48} className="mx-auto mb-4 text-gray-300" />
+                                                <p className="text-lg font-medium">Planejamento Estratégico não encontrado</p>
+                                                <p className="text-sm mt-2">Gere uma nova estimativa com IA para obter a Matriz RACI e Premissas.</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })()}
                         </>
                     )}
 

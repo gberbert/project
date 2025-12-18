@@ -147,6 +147,14 @@ export const TaskForm = ({ task, resources, allTasks, onSave, onCancel, onSplit,
         setFormData(prev => ({ ...prev, dependencies: currentDeps.filter(id => id !== removeId) }));
     };
 
+    const HOLIDAYS_BR = [
+        '0-1', '3-21', '4-1', '8-7', '9-12', '10-2', '10-15', '11-25'
+    ];
+    const isHoliday = (date: Date) => {
+        const key = `${date.getMonth()}-${date.getDate()}`;
+        return HOLIDAYS_BR.includes(key);
+    };
+
     const countBusinessDays = (startDate: Date | undefined, endDate: Date | undefined) => {
         if (!startDate || !endDate) return 0;
         const start = new Date(startDate);
@@ -159,7 +167,7 @@ export const TaskForm = ({ task, resources, allTasks, onSave, onCancel, onSplit,
         let count = 0;
         let current = start;
         while (current <= end) {
-            if (!isWeekend(current)) count++;
+            if (!isWeekend(current) && !isHoliday(current)) count++;
             current = addDays(current, 1);
         }
         return count;

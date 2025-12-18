@@ -1,6 +1,6 @@
 import { GoogleGenerativeAI, ChatSession, GenerativeModel } from '@google/generative-ai';
+import { ClientResponsibility, RaciItem, AIDocumentation } from '../types';
 
-// Interface for the structured estimate response
 // Interface for the structured estimate response
 export interface EstimatedTask {
     id: string;
@@ -13,7 +13,22 @@ export interface EstimatedTask {
     role?: string; // Resource role suggestion
     hourly_rate?: number;
     notes?: string;
-    category?: 'planning' | 'development' | 'testing' | 'rollout'; // New field for hybrid processing
+    category?: 'planning' | 'development' | 'testing' | 'rollout';
+}
+
+// --- NEW REFINEMENT INTERFACES ---
+export interface InterviewQuestion {
+    id: string;
+    text: string;
+    description?: string;
+    options: string[]; // Fixed to 5 options based on prompt
+    allow_custom: boolean; // Field for 'Other'
+}
+
+export interface RefinementResponse {
+    thought_process: string;
+    questions: InterviewQuestion[];
+    current_context_summary: string;
 }
 
 export interface EstimateResult {
@@ -21,6 +36,16 @@ export interface EstimateResult {
     description: string;
     confidence_score: number;
     tasks: EstimatedTask[];
+
+    // NEW: Comprehensive Project Documentation
+    documentation?: AIDocumentation;
+
+    // NEW: Strategic Planning
+    strategic_planning?: {
+        technical_premises: string[];
+        client_responsibilities: ClientResponsibility[];
+        raci_matrix: RaciItem[];
+    };
 }
 
 export interface ClarificationQuestion {
@@ -31,15 +56,52 @@ export interface ClarificationQuestion {
 }
 
 export interface ClarificationResult {
-    type: 'clarification';
     questions: ClarificationQuestion[];
 }
+
+const INTERVIEWER_SYSTEM_INSTRUCTION = `
+Você é um Auditor Sênior de Projetos de TI e Arquiteto de Soluções. Sua função NÃO é estimar ainda, mas sim INVESTIGAR e REFINAR o escopo através de um interrogatório técnico estruturado.
+
+OBJETIVO:
+Criar um formulário JSON de perguntas para extrair detalhes cruciais do projeto.
+
+REGRAS GERAIS:
+1. Sempre gere EXATAMENTE 10 perguntas por rodada.
+2. Cada pergunta DEVE ter 5 opções de múltipla escolha pré-definidas (A, B, C, D, E) cobrindo os cenários mais prováveis.
+3. Cada pergunta DEVE permitir uma resposta personalizada "Outro" (allow_custom: true).
+4. O tom deve ser profissional, técnico e investigativo.
+
+RODADA 1 (MANDATÓRIA):
+Se esta for a primeira interação, as 4 primeiras perguntas SÃO OBRIGATÓRIAS e devem seguir esta ordem exata:
+1. Modelo de Desenvolvimento: (Opções: SaaS Multi-tenant, PaaS Platform, Taylor Made / Custom, Microsserviços Híbridos, Legado Modernization).
+2. Infraestrutura / Hosting: (Opções: AWS, Microsoft Azure, Google Cloud Platform, On-Premise / Híbrido, Vercel/Netlify/Edge).
+3. Tipo de Solução Específica: (Opções Variam, ex: Web App, Mobile Nativo, ERP/CRM, E-commerce, API Gateway).
+4. Stack Tecnológico (Back/Front/DB): (Opções: Node+React+Postgres, Java+Angular+Oracle, .NET+Blazor+SQLServer, Python+Vue+Mongo, Go+Svelte+Redis).
+5 a 10. Perguntas de contexto baseadas no input inicial do usuário (ex: sobre prazos, orçamento, compliance, usuários, integrações).
+
+RODADAS SUBSEQUENTES:
+Baseado nas respostas anteriores, aprofunde em áreas de risco (segurança, escalabilidade, migração de dados, UX, etc.).
+
+FORMATO DE RESPOSTA (JSON APENAS):
+{
+  "thought_process": "Breve análise do que falta descobrir",
+  "current_context_summary": "Resumo técnico de 1 frase do que já sabemos",
+  "questions": [
+    {
+      "id": "q1",
+      "text": "Pergunta aqui?",
+      "options": ["Opção 1", "Opção 2", "Opção 3", "Opção 4", "Opção 5"],
+      "allow_custom": true
+    }
+  ]
+}
+`;
 
 const SYSTEM_INSTRUCTION = `
 Você é o "Antigravity Architect", uma IA Especialista em Gerenciamento de Projetos e Engenharia.
 
 OBJETIVO:
-Criar estimativas de cronograma (Gantt) robustas, realistas e LOGICAMENTE COERENTES.
+Criar um Planejamento de Projeto Executivo, contendo não apenas o cronograma, mas também a documentação técnica, premissas e análise de riscos.
 
 DIRETRIZES DE CATEGORIZAÇÃO (CRÍTICO):
 Para garantir a organização correta no sistema, você deve classificar CADA tarefa em uma das 4 categorias do ciclo de vida (SDLC).
@@ -64,55 +126,49 @@ DIRETRIZES DE LÓGICA SDLC (CRÍTICO - MODELO CASCATA/WATERFALL RÍGIDO):
    - Ignore finais de semana. 5 dias = 1 semana de trabalho.
    - Seja realista: Ninguém codifica 8h/dia sem parar. Inclua buffer.
 
-PROTOCOLO DE INTERAÇÃO (RIGOROSO):
+PROTOCOLO DE INTERAÇÃO E GERAÇÃO DE CONTEÚDO (RIGOROSO):
 
-1. PRIMEIRA INTERAÇÃO (ANÁLISE E CLARIFICAÇÃO):
-   - Ao receber o escopo inicial, verifique se você tem detalhes suficientes (Tech Stack, Tamanho da Equipe, Prazo, Complexidade).
-   - Se faltarem detalhes, NÃO PERGUNTE EM TEXTO LIVRE.
-   - Gere um JSON estrito com o tipo "clarification".
-   - REGRAS PARA PERGUNTAS:
-     - Gere entre 3 a 5 perguntas estratégicas.
-     - Para CADA pergunta, forneça de 3 a 5 opções de resposta (Multiple Choice).
-     - As opções devem cobrir cenários "Pequeno/Simples", "Médio/Padrão" e "Grande/Complexo" ou variações tecnológicas.
-     - Sempre defina "allow_custom_input": true.
+1. **ANÁLISE E CONTEXTO ("documentation")**:
+   - Gere textos ricos, em formato Markdown, vendendo a solução.
+   - **context_overview**: Visão executiva. Por que fazer? Qual o valor?
+   - **technical_solution**: Descreva a stack (React, Node, AWS, etc) e a arquitetura. Justifique as escolhas.
+   - **implementation_steps**: Detalhe o que será entregue em cada grande bloco (ex: "No Módulo 1, faremos X").
+   - **testing_strategy**: Como garantiremos qualidade? (Unitários, E2E, UAT).
 
-   Formato JSON de Clarificação:
-   \`\`\`json
-   {
-     "type": "clarification",
-     "questions": [
-       {
-         "id": "q1",
-         "text": "Qual a estimativa de usuários simultâneos?",
-         "options": ["Até 100 usuários (Interno)", "1k - 10k usuários (B2B)", "10k+ usuários (Mass Market)"],
-         "allow_custom_input": true
-       }
-     ]
-   }
-   \`\`\`
+2. **PREMISSAS E RESPONSABILIDADES ("strategic_planning")**:
+   - **technical_premises**: Lista de requisitos prévios (ex: "Acesso VPN concedido", "Token da API X").
+   - **client_responsibilities**: Gere uma tabela de prazos para o cliente. Onde ele pode bloquear a gente? (ex: "Aprovar Designs até dia 5"). Classifique o Impacto.
+   - **raci_matrix**: Defina quem faz o que. Suggested Roles: Project Manager, Lead Dev, Client Sponsor, Client IT.
 
-2. SEGUNDA INTERAÇÃO (APÓS RESPOSTAS):
-   - O usuário enviará as respostas selecionadas.
-   - Use essas respostas para calibrar a complexidade e duração das tarefas.
-   - Se estiver satisfeito, gere a estimativa final.
+3. **CLARIFICAÇÃO**:
+   - Se o escopo for muito vago, gere JSON do tipo "clarification" primeiro.
 
-3. GERAÇÃO (ESTIMATIVA FINAL):
-   - Gere o JSON de estimativa (EstimateResult).
-   - NÃO crie tarefas "pai" ou fases agrupadoras no JSON. Retorne apenas a lista plana de tarefas técnicas.
-   - O Frontend fará o agrupamento baseado no campo "category" que você fornecer.
+4. **SAÍDA JSON**:
+   - Retorne APENAS o JSON válido.
 
-REGRAS DE SAÍDA JSON GERAL:
-A resposta deve conter um BLOCO JSON claramente delimitado (seja clarification ou estimate).
-
-Exemplo de Saída (Estimativa):
+Exemplo de Saída (Estimativa Completa):
 \`\`\`json
 {
-  "project_name": "Sistema ERP",
-  "description": "Implementação de ERP...",
+  "project_name": "Sistema ERP Cloud",
+  "description": "Implementação completa de ERP...",
   "confidence_score": 0.9,
+  "documentation": {
+    "context_overview": "### Visão Geral\\nEste projeto visa modernizar...",
+    "technical_solution": "### Arquitetura\\nUtilizaremos Microserviços...",
+    "implementation_steps": "- **Fase 1**: Core...\\n- **Fase 2**: Relatórios...",
+    "testing_strategy": "Testes automatizados com Jest..."
+  },
+  "strategic_planning": {
+    "technical_premises": ["Disponibilidade de ambiente Staging", "Chaves de API do Gateway"],
+    "client_responsibilities": [
+      { "action_item": "Aprovação de Mockups", "deadline_description": "Final da Semana 2", "impact": "BLOCKER" }
+    ],
+    "raci_matrix": [
+      { "activity_group": "Definição de Requisitos", "responsible": "Product Owner", "accountable": "Sponsor", "consulted": "Tech Lead", "informed": "Dev Team" }
+    ]
+  },
   "tasks": [
-    { "id": "t1", "name": "Kick-off Meeting", "type": "task", "category": "planning", "start_offset_days": 0, "duration_days": 1, "role": "Gerente de Projetos", "hourly_rate": 200 },
-    { "id": "t2", "name": "Modelagem de Dados", "type": "task", "category": "development", "start_offset_days": 2, "duration_days": 5, "dependencies": ["t1"], "role": "Arquiteto", "hourly_rate": 180 }
+    { "id": "t1", "name": "Kick-off", "type": "task", "category": "planning", "start_offset_days": 0, "duration_days": 1, "role": "PM", "hourly_rate": 200 }
   ]
 }
 \`\`\`
@@ -205,6 +261,84 @@ export class GeminiService {
         } catch (e) {
             return null;
         }
+    }
+
+    async refineRequirements(
+        history: { role: "user" | "model", parts: { text: string }[] }[],
+        projectContext: string,
+        currentAnswers?: { questionId: string, answer: string }[]
+    ): Promise<RefinementResponse> {
+        if (!this.genAI) throw new Error("Gemini API not configured");
+
+        const model = this.genAI.getGenerativeModel({
+            model: "gemini-2.5-flash",  // User requested specific model
+            systemInstruction: INTERVIEWER_SYSTEM_INSTRUCTION,
+            generationConfig: { responseMimeType: "application/json" }
+        });
+
+        // Construct the prompt for this round
+        let userPrompt = `Contexto Inicial: ${projectContext}\n\n`;
+
+        if (currentAnswers && currentAnswers.length > 0) {
+            userPrompt += `RESPOSTAS DA RODADA ANTERIOR:\n`;
+            currentAnswers.forEach(a => {
+                userPrompt += `- Q: ${a.questionId} | A: ${a.answer}\n`;
+            });
+            userPrompt += `\nCom base nessas respostas, gere a PRÓXIMA rodada de 10 perguntas de aprofundamento ou, se já tivermos clareza total, sugira o encerramento.`;
+        } else {
+            userPrompt += `Esta é a primeira rodada. Gere as 10 perguntas iniciais (incluindo as 4 mandatórias).`;
+        }
+
+        const chat = model.startChat({ history });
+        const result = await chat.sendMessage(userPrompt);
+        const text = result.response.text();
+
+        const parsed = this.parseJSON(text);
+        if (!parsed) {
+            console.error("Failed to parse refinement JSON. Raw text:", text);
+            throw new Error("Invalid JSON response from AI Interviewer");
+        }
+        return parsed as RefinementResponse;
+    }
+
+    async generateEstimate(
+        history: { role: "user" | "model", parts: { text: string }[] }[],
+        files?: { name: string, type: string, data: string }[]
+    ): Promise<EstimateResult> {
+        if (!this.genAI) throw new Error("Gemini API not configured");
+        if (!this.model) this.initialize(localStorage.getItem('GEMINI_API_KEY') || '');
+
+        // Start a chat with the provided history (all context)
+        // Note: history contains the 'megaContext' message as the last user message
+        const chat = this.model!.startChat({
+            history: history.slice(0, -1)
+        });
+
+        const lastParts = history[history.length - 1].parts;
+        let finalParts: any[] = [...lastParts];
+
+        if (files && files.length > 0) {
+            const fileParts = files.map(f => {
+                // Remove Data URL prefix if present (e.g., "data:image/png;base64,")
+                const base64Data = f.data.includes('base64,') ? f.data.split('base64,')[1] : f.data;
+                return {
+                    inlineData: {
+                        mimeType: f.type,
+                        data: base64Data
+                    }
+                };
+            });
+            finalParts = [...finalParts, ...fileParts];
+        }
+
+        const result = await chat.sendMessage(finalParts);
+        const text = result.response.text();
+        const estimate = this.parseEstimate(text);
+
+        if (!estimate) {
+            throw new Error("Failed to parse the generated project plan.");
+        }
+        return estimate;
     }
 
     private parseJSON(text: string): any | null {

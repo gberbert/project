@@ -1,4 +1,4 @@
-import { DollarSign, Clock, Users, Target, Activity, TrendingUp, Calculator, Sparkles } from 'lucide-react';
+import { DollarSign, Clock, Users, Target, Activity, TrendingUp, Calculator, Sparkles, Calendar } from 'lucide-react';
 import { Project } from '../types';
 
 interface Stats {
@@ -10,6 +10,8 @@ interface Stats {
     totalRealDuration?: number;
     spi?: number;
     cpi?: number;
+    startDate?: Date;
+    endDate?: Date;
 }
 
 interface ProjectSummaryProps {
@@ -43,7 +45,7 @@ export const ProjectSummary = ({ stats, project, onUpdateProject }: ProjectSumma
 
     // Helper for compact metric
     const CompactMetric = ({ label, value, subValue, icon: Icon, colorClass, subColorClass }: any) => (
-        <div className="flex flex-col min-w-[100px]">
+        <div className="flex flex-col min-w-[80px]">
             <div className="flex items-center gap-1.5 mb-0.5">
                 <div className={`p-1 rounded bg-opacity-10 ${colorClass.replace('text-', 'bg-')}`}>
                     <Icon size={12} className={colorClass} />
@@ -63,7 +65,7 @@ export const ProjectSummary = ({ stats, project, onUpdateProject }: ProjectSumma
 
                 {/* AI Context moved to Header */}
 
-                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+                <div className="flex flex-col lg:flex-row lg:items-center lg:flex-wrap justify-between gap-x-4 gap-y-4">
 
                     {/* Project Health - 5 Metrics */}
                     <div className="grid grid-cols-2 min-[400px]:grid-cols-3 lg:flex lg:gap-6 gap-4 border-b lg:border-b-0 lg:border-r border-gray-100 pb-4 lg:pb-0 lg:pr-6 w-full lg:w-auto">
@@ -83,6 +85,22 @@ export const ProjectSummary = ({ stats, project, onUpdateProject }: ProjectSumma
                             icon={Clock}
                             colorClass="text-blue-600"
                         />
+                        {stats.startDate && (
+                            <CompactMetric
+                                label="Início"
+                                value={stats.startDate.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                                icon={Calendar}
+                                colorClass="text-purple-600"
+                            />
+                        )}
+                        {stats.endDate && (
+                            <CompactMetric
+                                label="Fim"
+                                value={stats.endDate.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                                icon={Calendar}
+                                colorClass="text-purple-600"
+                            />
+                        )}
                         <CompactMetric
                             label="Progresso"
                             value={`${stats.progress}%`}
@@ -93,11 +111,11 @@ export const ProjectSummary = ({ stats, project, onUpdateProject }: ProjectSumma
                         />
                         <CompactMetric
                             label="SPI (Prazo)"
-                            value={stats.spi?.toFixed(2) || '1.00'}
-                            subValue={stats.spi && stats.spi < 1 ? 'Atrasado' : 'Ok'}
-                            subColorClass={stats.spi && stats.spi < 1 ? 'text-red-500' : 'text-emerald-600'}
+                            value={stats.spi?.toFixed(2) || '0.00'}
+                            subValue={stats.spi !== undefined && stats.spi < 1 ? 'Atrasado' : 'Ok'}
+                            subColorClass={stats.spi !== undefined && stats.spi < 1 ? 'text-red-500' : 'text-emerald-600'}
                             icon={TrendingUp}
-                            colorClass={stats.spi && stats.spi < 1 ? 'text-red-600' : 'text-emerald-600'}
+                            colorClass={stats.spi !== undefined && stats.spi < 1 ? 'text-red-600' : 'text-emerald-600'}
                         />
                         <div className="col-span-1"> {/* Explicit wrapper to prevent layout quirks */}
                             <CompactMetric
@@ -148,7 +166,7 @@ export const ProjectSummary = ({ stats, project, onUpdateProject }: ProjectSumma
                                             type="number"
                                             value={project.taxRate || 0}
                                             onChange={(e) => handleUpdate('taxRate', e.target.value)}
-                                            className="w-10 bg-transparent text-xs font-bold text-gray-700 focus:outline-none border-b border-gray-300 focus:border-indigo-500 p-0 text-center"
+                                            className="w-14 bg-transparent text-xs font-bold text-gray-700 focus:outline-none border-b border-gray-300 focus:border-indigo-500 p-0 text-center"
                                         />
                                         <span className="text-xs text-gray-400 ml-0.5">%</span>
                                     </div>

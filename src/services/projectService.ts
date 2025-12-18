@@ -30,6 +30,43 @@ const sanitizeData = (data: any) => {
     return clean;
 };
 
+import { checkIsHoliday } from '../lib/utils';
+// ... imports ...
+
+export const getNextWorkingDay = (date: Date) => {
+    const d = new Date(date);
+    // Iterate until we find a working day (Not Weekend AND Not Holiday)
+    while (true) {
+        const day = d.getDay();
+        const isWeekend = day === 6 || day === 0;
+        if (!isWeekend && !checkIsHoliday(d)) {
+            break;
+        }
+        d.setDate(d.getDate() + 1);
+    }
+    return d;
+};
+
+export const addBusinessDays = (startDate: Date, durationMs: number) => {
+    // Approximate duration in days
+    const days = Math.ceil(durationMs / (1000 * 60 * 60 * 24));
+    let d = new Date(startDate);
+    let count = 0;
+    while (count < days) {
+        d.setDate(d.getDate() + 1);
+        const day = d.getDay();
+        const isWeekend = day === 0 || day === 6;
+        if (!isWeekend && !checkIsHoliday(d)) count++;
+    }
+    // Handle case where startDate itself might be invalid in some contexts, 
+    // but usually we add from a valid start. 
+    // If strict duration matches days=0 but time > 0, we just return d (which is start + 0 days).
+    if (days === 0 && durationMs > 0) return d;
+    return d;
+};
+
+// Duplicates removed. Only clean code remains.
+
 export const ProjectService = {
     // --- Clients ---
     subscribeClients: (callback: (clients: Client[]) => void, userId?: string, role?: string) => {
@@ -106,8 +143,6 @@ export const ProjectService = {
     subscribeTasks: (projectId: string, callback: (tasks: Task[]) => void) => {
         const q = query(collection(db, TASKS_COL), where('projectId', '==', projectId));
         return onSnapshot(q, (snapshot) => {
-            // Map Firestore data to Task interface
-            // Ensure Dates are converted from Timestamp if needed
             const tasks = snapshot.docs.map(doc => {
                 const data = doc.data();
                 return {
@@ -163,6 +198,132 @@ export const ProjectService = {
         return batch.commit();
     },
 
+    replaceProjectTasks: async (projectId: string, newTasks: Task[]) => {
+        const q = query(collection(db, TASKS_COL), where('projectId', '==', projectId));
+        const snapshot = await getDocs(q);
+
+        const deleteChunks = [];
+        for (let i = 0; i < snapshot.docs.length; i += 400) {
+            const batch = writeBatch(db);
+            snapshot.docs.slice(i, i + 400).forEach(d => batch.delete(d.ref));
+            deleteChunks.push(batch.commit());
+        }
+        await Promise.all(deleteChunks);
+
+        const createChunks = [];
+        for (let i = 0; i < newTasks.length; i += 400) {
+            createChunks.push(newTasks.slice(i, i + 400));
+        }
+
+        let minStart: Date | null = null;
+        let maxEnd: Date | null = null;
+
+        for (const chunk of createChunks) {
+            const batch = writeBatch(db);
+            chunk.forEach(task => {
+                const taskRef = doc(db, TASKS_COL, task.id);
+                const data = {
+                    ...task,
+                    projectId // Limit to project
+                };
+                batch.set(taskRef, sanitizeData(data));
+
+                if (task.type !== 'project' && task.start && task.end) {
+                    const tStart = new Date(task.start);
+                    const tEnd = new Date(task.end);
+                    if (!minStart || tStart < minStart) minStart = tStart;
+                    if (!maxEnd || tEnd > maxEnd) maxEnd = tEnd;
+                }
+            });
+            await batch.commit();
+        }
+
+        if (minStart && maxEnd) {
+            const projRef = doc(db, PROJECTS_COL, projectId);
+            // @ts-ignore
+            await updateDoc(projRef, { startDate: minStart, endDate: maxEnd });
+        }
+    },
+
+    // --- Scheduling Helper with Business Days ---
+    recalculateProjectSchedule: async (projectId: string, tasks: Task[]) => {
+        const idMap = new Map<string, Task>();
+        tasks.forEach(t => idMap.set(t.id, { ...t }));
+
+        let changed = false;
+        const updates: { id: string, data: Partial<Task> }[] = [];
+
+        for (let pass = 0; pass < tasks.length + 2; pass++) {
+            let passChanged = false;
+
+            for (const task of tasks) {
+                const current = idMap.get(task.id)!;
+                if (!current.dependencies || current.dependencies.length === 0) continue;
+
+                let maxDepEnd = 0;
+                current.dependencies.forEach(depId => {
+                    const dep = idMap.get(depId);
+                    if (dep && dep.end) {
+                        const depEndTime = new Date(dep.end).getTime();
+                        if (depEndTime > maxDepEnd) maxDepEnd = depEndTime;
+                    }
+                });
+
+                if (maxDepEnd > 0) {
+                    const currentStart = new Date(current.start).getTime();
+                    const currentEnd = new Date(current.end).getTime();
+
+                    // Helper Logic Inline or Call
+                    const constraintStart = new Date(maxDepEnd);
+                    const validStart = getNextWorkingDay(constraintStart);
+
+                    // Check violations: Start < ValidStart OR Start is Weekend
+                    const currentStartObj = new Date(currentStart);
+                    const isWeekendStart = currentStartObj.getDay() === 0 || currentStartObj.getDay() === 6;
+
+                    if (currentStart < validStart.getTime() || isWeekendStart) {
+
+                        const newStart = (currentStart < validStart.getTime()) ? validStart : getNextWorkingDay(currentStartObj);
+
+                        // Recalculate End
+                        const durationMs = currentEnd - currentStart;
+                        const newEnd = addBusinessDays(newStart, durationMs);
+
+                        current.start = newStart;
+                        current.end = newEnd;
+                        idMap.set(current.id, current);
+                        passChanged = true;
+                        changed = true;
+                    }
+                }
+            }
+            if (!passChanged) break;
+        }
+
+        if (changed) {
+            tasks.forEach(original => {
+                const final = idMap.get(original.id)!;
+                if (new Date(final.start).getTime() !== new Date(original.start).getTime() ||
+                    new Date(final.end).getTime() !== new Date(original.end).getTime()) {
+                    updates.push({
+                        id: final.id,
+                        data: {
+                            start: final.start,
+                            end: final.end
+                        }
+                    });
+                }
+            });
+
+            if (updates.length > 0) {
+                console.log(`Rescheduling (WorkDays): Updating ${updates.length} tasks.`);
+                await ProjectService.batchUpdateTasks(updates);
+                return updates;
+            }
+        }
+        return [];
+    },
+
     // --- Resources ---
     subscribeResources: (callback: (resources: Resource[]) => void) => {
         return onSnapshot(collection(db, RESOURCES_COL), (snapshot) => {
@@ -184,13 +345,10 @@ export const ProjectService = {
         return deleteDoc(doc(db, RESOURCES_COL, resourceId));
     },
 
-    // Seed function for demo purposes
     seedInitialData: async () => {
-        // Check if data exists
         const snap = await getDocs(collection(db, RESOURCES_COL));
-        if (!snap.empty) return; // Don't seed if data exists
+        if (!snap.empty) return;
 
-        // Add Resources
         const resources = [
             { name: 'Ana Silva', role: 'Product Owner', hourlyRate: 150, avatarUrl: '' },
             { name: 'Carlos Dev', role: 'FullStack Dev', hourlyRate: 100, avatarUrl: '' },
@@ -203,7 +361,6 @@ export const ProjectService = {
             resIds.push({ ...r, id: ref.id });
         }
 
-        // Add Project
         const projRef = await addDoc(collection(db, PROJECTS_COL), {
             name: 'Plataforma SaaS v1',
             description: 'Desenvolvimento do MVP',
@@ -211,7 +368,6 @@ export const ProjectService = {
             createdAt: new Date()
         });
 
-        // Add Tasks
         const tasks = [
             {
                 projectId: projRef.id,
@@ -230,8 +386,7 @@ export const ProjectService = {
                 type: 'task',
                 progress: 20,
                 resourceId: resIds[2].id,
-                parent: 'auto-id-1' // This needs to match the ID generated above for hierarchy, 
-                // In a real generic seed we need to capture IDs first. Skipping complex hierarchy for basic seed.
+                parent: 'auto-id-1'
             }
         ];
     },

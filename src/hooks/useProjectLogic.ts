@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { Task, Resource } from '../types';
 import { recalculateGantt, hasCycle } from '../lib/projectLogic';
+import { calculateBusinessDays } from '../lib/utils';
 import { differenceInMilliseconds, addMilliseconds, isWeekend, addDays, isAfter, differenceInDays } from 'date-fns';
 
 export const useProjectLogic = (initialTasks: Task[]) => {
@@ -112,8 +113,56 @@ export const useProjectLogic = (initialTasks: Task[]) => {
 
                 tasksCopy.splice(insertIndex, 0, updated);
             } else {
-                // Just update in place
-                tasksCopy = tasksCopy.map(t => t.id === updated.id ? updated : t);
+                // Just update in place, but with Cascade Logic for Dates
+                const old = prev.find(t => t.id === updated.id);
+                if (old) {
+                    const oldEnd = old.end.getTime();
+                    const newEnd = updated.end.getTime();
+                    const delta = newEnd - oldEnd;
+
+                    let newTasks = tasksCopy.map(t => t.id === updated.id ? updated : t);
+
+                    // Cascade Delta if dates changed (Same logic as handleMoveTask)
+                    if (delta !== 0) {
+                        const successorMap = new Map<string, string[]>();
+                        newTasks.forEach(t => {
+                            t.dependencies?.forEach(dep => {
+                                const list = successorMap.get(dep) || [];
+                                list.push(t.id);
+                                successorMap.set(dep, list);
+                            });
+                        });
+
+                        const queue = [updated.id];
+                        const affectedIds = new Set<string>();
+
+                        while (queue.length > 0) {
+                            const curr = queue.shift()!;
+                            const succs = successorMap.get(curr) || [];
+                            succs.forEach(s => {
+                                if (!affectedIds.has(s)) {
+                                    affectedIds.add(s);
+                                    queue.push(s);
+                                }
+                            });
+                        }
+
+                        newTasks = newTasks.map(t => {
+                            if (affectedIds.has(t.id)) {
+                                return {
+                                    ...t,
+                                    start: new Date(t.start.getTime() + delta),
+                                    end: new Date(t.end.getTime() + delta)
+                                };
+                            }
+                            return t;
+                        });
+                    }
+                    tasksCopy = newTasks;
+                } else {
+                    // Fail safe
+                    tasksCopy = tasksCopy.map(t => t.id === updated.id ? updated : t);
+                }
             }
 
             // Cycle check (Logic same as before)
@@ -211,8 +260,54 @@ export const useProjectLogic = (initialTasks: Task[]) => {
             // "Tarefas Pai (Grupos): NÃO devem ter datas editáveis manualmente." -> YES.
             if (task.type === 'project') return prev; // Locked
 
+            const oldEnd = task.end.getTime();
+            const newEndMs = newEnd.getTime();
+            const delta = newEndMs - oldEnd;
+
             const updated = { ...task, start: newStart, end: newEnd };
-            const newTasks = prev.map(t => t.id === taskId ? updated : t);
+            let newTasks = prev.map(t => t.id === taskId ? updated : t);
+
+            // Cascade Delta to Successors (Auto-Schedule / "Mesmo Ajuste")
+            if (delta !== 0) {
+                // Build Successor Map (Predecessor -> [Successors])
+                const successorMap = new Map<string, string[]>();
+                newTasks.forEach(t => {
+                    t.dependencies?.forEach(dep => {
+                        const list = successorMap.get(dep) || [];
+                        list.push(t.id);
+                        successorMap.set(dep, list);
+                    });
+                });
+
+                // BFS to find all downstream tasks
+                const queue = [taskId];
+                const affectedIds = new Set<string>();
+                // We don't add taskId to affectedIds because it's already updated manually
+
+                while (queue.length > 0) {
+                    const curr = queue.shift()!;
+                    const succs = successorMap.get(curr) || [];
+                    succs.forEach(s => {
+                        if (!affectedIds.has(s)) {
+                            affectedIds.add(s);
+                            queue.push(s);
+                        }
+                    });
+                }
+
+                // Apply Delta to all affected tasks
+                newTasks = newTasks.map(t => {
+                    if (affectedIds.has(t.id)) {
+                        return {
+                            ...t,
+                            start: new Date(t.start.getTime() + delta),
+                            end: new Date(t.end.getTime() + delta)
+                        };
+                    }
+                    return t;
+                });
+            }
+
             return enforceRules(newTasks);
         });
     };
@@ -286,20 +381,10 @@ export const useProjectLogic = (initialTasks: Task[]) => {
         getProjectStats: (resources: Resource[] = []) => {
             if (tasks.length === 0) return { totalCost: 0, totalRealCost: 0, progress: 0, totalDuration: 0, totalRealDuration: 0 };
 
+            // countBusinessDays function removed, using imported calculateBusinessDays
             const countBusinessDays = (startDate: Date | undefined, endDate: Date | undefined) => {
                 if (!startDate || !endDate) return 0;
-                const start = new Date(startDate);
-                const end = new Date(endDate);
-                start.setHours(12, 0, 0, 0);
-                end.setHours(12, 0, 0, 0);
-                if (isAfter(start, end)) return 0;
-                let count = 0;
-                let current = start;
-                while (current <= end) {
-                    if (!isWeekend(current)) count++;
-                    current = addDays(current, 1);
-                }
-                return count;
+                return calculateBusinessDays(startDate, endDate);
             };
 
             let minStart = new Date(8640000000000000);

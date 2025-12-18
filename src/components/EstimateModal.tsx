@@ -1,189 +1,283 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { X, Send, Paperclip, Bot, User, Loader2, Sparkles, AlertCircle, LayoutDashboard } from 'lucide-react';
-import { geminiService, EstimateResult, ClarificationResult } from '../services/geminiService';
+import { EstimateResult, ClarificationResult, ClarificationQuestion, geminiService, RefinementResponse, InterviewQuestion } from '../services/geminiService';
+import { MarkdownRenderer } from './MarkdownRenderer';
+import { Bot, User, Paperclip, Send, Loader2, X, AlertCircle, FileText, LayoutDashboard, CheckSquare, Target, Sparkles, Wand2, ArrowRight } from 'lucide-react';
 
-
-interface EstimateModalProps {
+export interface EstimateModalProps {
     isOpen: boolean;
     onClose: () => void;
     onApplyEstimate: (estimate: EstimateResult) => Promise<void>;
+    user?: { role: string;[key: string]: any };
     clientContext?: string;
     knowledgeBase?: string[];
 }
 
 interface Message {
     id: string;
-    role: 'user' | 'model';
-    text: string;
+    role: 'user' | 'model' | 'assistant';
+    content: string; // Unified property for text content
+    text?: string;   // Legacy support
     attachments?: string[];
     isError?: boolean;
-    estimateData?: EstimateResult;
-    clarificationData?: ClarificationResult;
+    estimate?: EstimateResult;
+    questionnaire?: ClarificationResult;
 }
 
-export const EstimateModal = ({ isOpen, onClose, onApplyEstimate, clientContext, knowledgeBase }: EstimateModalProps) => {
+// Sub-component for the rich estimate view with tabs
+const EstimateView = ({ estimate, onApply, isApplying }: { estimate: EstimateResult, onApply: () => void, isApplying: boolean }) => {
+    const [activeTab, setActiveTab] = useState<'summary' | 'context' | 'planning'>('summary');
+
+    const TabButton = ({ id, label, icon: Icon }: { id: typeof activeTab, label: string, icon: any }) => (
+        <button
+            onClick={() => setActiveTab(id)}
+            className={`flex items - center gap - 2 px - 4 py - 2 text - sm font - medium rounded - lg transition - colors ${activeTab === id
+                ? 'bg-indigo-100 text-indigo-700'
+                : 'text-gray-600 hover:bg-gray-100'
+                } `}
+        >
+            <Icon size={16} />
+            {label}
+        </button>
+    );
+
+    return (
+        <div className="w-full">
+            <h3 className="font-bold text-lg mb-4 flex items-center gap-2 text-gray-900">
+                <Sparkles size={18} className="text-yellow-500" />
+                Proposta de Projeto Gerada
+            </h3>
+
+            {/* Tabs Header */}
+            <div className="flex gap-2 mb-4 border-b border-gray-200 pb-2 overflow-x-auto">
+                <TabButton id="summary" label="Resumo & Gantt" icon={LayoutDashboard} />
+                <TabButton id="context" label="Contexto do Projeto" icon={FileText} />
+                <TabButton id="planning" label="Premissas & RACI" icon={CheckSquare} />
+            </div>
+
+            {/* Content Areas */}
+            <div className="min-h-[300px]">
+                {activeTab === 'summary' && (
+                    <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                        <p className="text-sm text-gray-700 leading-relaxed">{estimate.description || "Cronograma gerado com sucesso."}</p>
+
+                        <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 text-sm space-y-3">
+                            <div className="flex justify-between items-center border-b border-gray-200 pb-2">
+                                <span className="font-semibold text-gray-600">Projeto</span>
+                                <span className="font-medium text-gray-900">{estimate.project_name}</span>
+                            </div>
+                            <div className="flex justify-between items-center border-b border-gray-200 pb-2">
+                                <span className="font-semibold text-gray-600">Total de Tarefas</span>
+                                <span className="bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full text-xs font-bold">{estimate.tasks.length}</span>
+                            </div>
+                            <div className="flex justify-between items-center">
+                                <span className="font-semibold text-gray-600">Confiança da IA</span>
+                                <span className={`font - bold ${estimate.confidence_score > 0.7 ? 'text-green-600' : 'text-orange-500'} `}>
+                                    {(estimate.confidence_score * 100).toFixed(0)}%
+                                </span>
+                            </div>
+                        </div>
+
+                        <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl">
+                            <h4 className="font-semibold text-blue-900 text-sm mb-2">Próximos Passos</h4>
+                            <p className="text-blue-700 text-xs">
+                                Revise os detalhes nas abas "Contexto" e "Premissas" antes de gerar o gráfico.
+                                Ao clicar em gerar, as tarefas serão importadas para o cronograma interativo.
+                            </p>
+                        </div>
+
+                        <button
+                            onClick={onApply}
+                            disabled={isApplying}
+                            className={`w - full py - 3 rounded - xl font - bold transition - all flex items - center justify - center gap - 2 shadow - sm ${isApplying
+                                ? 'bg-green-700 text-white/80 cursor-wait'
+                                : 'bg-green-600 hover:bg-green-700 hover:shadow-md text-white'
+                                } `}
+                        >
+                            {isApplying ? (
+                                <><Loader2 size={18} className="animate-spin" /> Criando Tarefas...</>
+                            ) : (
+                                <><LayoutDashboard size={18} /> Aprovar e Gerar Gantt</>
+                            )}
+                        </button>
+                    </div>
+                )}
+
+                {activeTab === 'context' && (
+                    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300 text-sm h-[350px] overflow-y-auto custom-scrollbar pr-2">
+                        {estimate.documentation ? (
+                            <div className="space-y-4">
+                                <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-100">
+                                    <h4 className="font-bold text-indigo-900 mb-2 flex items-center gap-2">
+                                        <Target size={16} className="text-indigo-600" />Contexto Geral
+                                    </h4>
+                                    <MarkdownRenderer content={estimate.documentation.context_overview} className="text-xs" />
+                                </div>
+
+                                <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100">
+                                    <h4 className="font-bold text-blue-900 mb-2 mt-2 flex items-center gap-2">
+                                        <FileText size={16} className="text-blue-600" />Solução Técnica
+                                    </h4>
+                                    <MarkdownRenderer content={estimate.documentation.technical_solution} className="text-xs" />
+                                </div>
+
+                                <div className="bg-green-50/50 p-4 rounded-xl border border-green-100">
+                                    <h4 className="font-bold text-green-900 mb-2 mt-2 flex items-center gap-2">
+                                        <LayoutDashboard size={16} className="text-green-600" />Estratégia de Implementação
+                                    </h4>
+                                    <MarkdownRenderer content={estimate.documentation.implementation_steps} className="text-xs" />
+                                </div>
+
+                                <div className="bg-teal-50/50 p-4 rounded-xl border border-teal-100">
+                                    <h4 className="font-bold text-teal-900 mb-2 mt-2 flex items-center gap-2">
+                                        <CheckSquare size={16} className="text-teal-600" />Plano de Testes
+                                    </h4>
+                                    <MarkdownRenderer content={estimate.documentation.testing_strategy} className="text-xs" />
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="text-center py-10 text-gray-500 italic">
+                                Documentação detalhada não disponível para esta estimativa.
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {activeTab === 'planning' && (
+                    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300 text-sm">
+                        {estimate.strategic_planning ? (
+                            <>
+                                <section>
+                                    <h4 className="font-bold text-gray-900 mb-2">Premissas Técnicas</h4>
+                                    <ul className="list-disc pl-5 space-y-1 text-gray-700 bg-white p-3 rounded-lg border border-gray-200">
+                                        {estimate.strategic_planning.technical_premises.map((p, i) => (
+                                            <li key={i}>{p}</li>
+                                        ))}
+                                    </ul>
+                                </section>
+
+                                <section>
+                                    <h4 className="font-bold text-gray-900 mb-2">Responsabilidades do Cliente (Prazos Críticos)</h4>
+                                    <div className="overflow-hidden rounded-lg border border-gray-200 shadow-sm">
+                                        <table className="min-w-full divide-y divide-gray-200">
+                                            <thead className="bg-gray-50">
+                                                <tr>
+                                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ação Necessária</th>
+                                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Prazo</th>
+                                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Impacto</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="bg-white divide-y divide-gray-200">
+                                                {estimate.strategic_planning.client_responsibilities.map((item, i) => (
+                                                    <tr key={i}>
+                                                        <td className="px-3 py-2 text-gray-800">{item.action_item}</td>
+                                                        <td className="px-3 py-2 text-gray-600 italic">{item.deadline_description}</td>
+                                                        <td className="px-3 py-2">
+                                                            <span className={`inline - flex items - center px - 2 py - 0.5 rounded text - xs font - medium ${item.impact === 'BLOCKER' ? 'bg-red-100 text-red-800' :
+                                                                item.impact === 'HIGH' ? 'bg-orange-100 text-orange-800' : 'bg-blue-100 text-blue-800'
+                                                                } `}>
+                                                                {item.impact}
+                                                            </span>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </section>
+
+                                <section>
+                                    <h4 className="font-bold text-gray-900 mb-2">Matriz RACI Sugerida</h4>
+                                    <div className="overflow-hidden rounded-lg border border-gray-200 shadow-sm">
+                                        <table className="min-w-full divide-y divide-gray-200">
+                                            <thead className="bg-gray-50">
+                                                <tr>
+                                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Atividade</th>
+                                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" title="Responsável (Executor)">R</th>
+                                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" title="Aprovador (Accountable)">A</th>
+                                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" title="Consultado">C</th>
+                                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" title="Informado">I</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="bg-white divide-y divide-gray-200">
+                                                {estimate.strategic_planning.raci_matrix.map((item, i) => (
+                                                    <tr key={i}>
+                                                        <td className="px-3 py-2 text-gray-800 font-medium">{item.activity_group}</td>
+                                                        <td className="px-3 py-2 text-gray-600 text-xs">{item.responsible}</td>
+                                                        <td className="px-3 py-2 text-gray-600 text-xs">{item.accountable}</td>
+                                                        <td className="px-3 py-2 text-gray-600 text-xs">{item.consulted}</td>
+                                                        <td className="px-3 py-2 text-gray-600 text-xs">{item.informed}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </section>
+                            </>
+                        ) : (
+                            <div className="text-center py-10 text-gray-500 italic">
+                                Dados de planejamento estratégico não gerados.
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+
+
+export const EstimateModal = ({ isOpen, onClose, onApplyEstimate, user, clientContext = '', knowledgeBase = [] }: EstimateModalProps) => {
+    // --- UI/Chat State ---
+    const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState('');
-    const [isApplying, setIsApplying] = useState(false);
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const [messages, setMessages] = useState<Message[]>([
-        { id: 'welcome', role: 'model', text: 'Olá! Sou seu Arquiteto de Projetos. Descreva o que você quer construir (software, engenharia, evento...) e anexe arquivos se tiver. Vou te ajudar a estimar o cronograma.' }
-    ]);
-    const [isLoading, setIsLoading] = useState(false);
-    const [isConfigured, setIsConfigured] = useState(geminiService.isConfigured());
     const [pendingFiles, setPendingFiles] = useState<{ name: string, type: string, data: string }[]>([]);
+    const [isLoading, setIsLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [isApplying, setIsApplying] = useState(false);
 
-    // State for managing questionnaire answers: { [messageId]: { [questionId]: answer } }
-    const [questionnaireAnswers, setQuestionnaireAnswers] = useState<Record<string, Record<string, string>>>({});
+    // --- Config State ---
+    const [isConfigured] = useState(geminiService.isConfigured());
+    const isAdmin = user?.role === 'admin' || user?.role === 'manager';
 
-    // Auto-scroll ref
+    // --- Refinement (Interviewer) State ---
+    const [isRefining, setIsRefining] = useState(false);
+    const [refinementData, setRefinementData] = useState<RefinementResponse | null>(null);
+    const [refinementAnswers, setRefinementAnswers] = useState<Record<string, string>>({}); // Accumulated answers
+    const [currentAnswers, setCurrentAnswers] = useState<Record<string, string>>({}); // Current round answers
+    const [projectContext, setProjectContext] = useState<string>("");
+
+    // --- Refs ---
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
+    // --- Effects ---
     useEffect(() => {
         if (isOpen) {
-            // Reset state for new session
             setMessages([
-                { id: 'welcome', role: 'model', text: 'Olá! Sou seu Arquiteto de Projetos. Descreva o que você quer construir (software, engenharia, evento...) e anexe arquivos se tiver. Vou te ajudar a estimar o cronograma.' }
+                {
+                    id: 'welcome',
+                    role: 'assistant',
+                    content: 'Olá! Sou o Antigravity Architect. Posso ajudar você a estruturar e estimar seu projeto de software. Descreva sua ideia ou faça upload de documentos para começarmos.'
+                }
             ]);
-            setInput('');
+            // Reset Refinement State
+            setRefinementData(null);
+            setRefinementAnswers({});
+            setCurrentAnswers({});
+            setIsRefining(false);
+            setProjectContext("");
+            setInput("");
             setPendingFiles([]);
-            setQuestionnaireAnswers({});
-            setIsConfigured(geminiService.isConfigured());
-
-            if (geminiService.isConfigured()) {
-                geminiService.startChat().catch(console.error);
-            }
+            setError(null);
         }
     }, [isOpen]);
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [messages]);
+    }, [messages, refinementData]);
 
-    if (!isOpen) return null;
-
-    const handleSend = async (overrideText?: string) => {
-        const textToSendRaw = overrideText || input;
-
-        if (!textToSendRaw.trim() && pendingFiles.length === 0) return;
-
-        const userMsg: Message = {
-            id: Date.now().toString(),
-            role: 'user',
-            text: textToSendRaw,
-            attachments: pendingFiles.map(f => f.name)
-        };
-
-        setMessages(prev => [...prev, userMsg]);
-        setInput('');
-        const filesToSend = [...pendingFiles]; // Snapshot
-        setPendingFiles([]);
-        setIsLoading(true);
-
-        try {
-            // Prepend context if it's the first user message
-            let textToSend = userMsg.text;
-            const userHistoryCount = messages.filter(m => m.role === 'user').length;
-
-            if (userHistoryCount === 0) {
-                let contextBlock = "";
-
-                if (clientContext) {
-                    contextBlock += `[CONTEXTO DO CLIENTE / BACKGROUND]:\n${clientContext}\n\n`;
-                }
-
-                if (knowledgeBase && knowledgeBase.length > 0) {
-                    contextBlock += `[MEMÓRIA DE PROJETOS ANTERIORES (RAG) - APRENDA COM ISSO]:\n${knowledgeBase.map(k => `- ${k}`).join('\n')}\n\n`;
-                }
-
-                if (contextBlock) {
-                    textToSend = `${contextBlock}[SOLICITAÇÃO ATUAL]:\n${textToSend}`;
-                }
-            }
-
-            const responseText = await geminiService.sendMessage(
-                textToSend,
-                filesToSend.map(f => ({ mimeType: f.type, data: f.data.split(',')[1] })) // Remove data:xxx/xxx;base64, prefix
-            );
-
-            // 1. Check for Estimate JSON
-            const estimate = geminiService.parseEstimate(responseText);
-            if (estimate && estimate.tasks && estimate.tasks.length > 0) {
-                const aiMsg: Message = {
-                    id: (Date.now() + 1).toString(),
-                    role: 'model',
-                    text: `📐 Estimativa gerada com sucesso!\n\n**Projeto:** ${estimate.project_name}\n**Confiança:** ${(estimate.confidence_score * 100).toFixed(0)}%\n**Tarefas:** ${estimate.tasks.length}\n\nClique em "Gerar Gantt" para aplicar.`,
-                    estimateData: estimate
-                };
-                setMessages(prev => [...prev, aiMsg]);
-                setIsApplying(false);
-                setIsLoading(false);
-                return;
-            }
-
-            // 2. Check for Clarification JSON
-            const clarification = geminiService.parseClarification(responseText);
-            if (clarification && clarification.questions && clarification.questions.length > 0) {
-                const aiMsg: Message = {
-                    id: (Date.now() + 1).toString(),
-                    role: 'model',
-                    text: "🔍 Preciso de alguns detalhes para ser mais preciso. Por favor, responda abaixo:",
-                    clarificationData: clarification
-                };
-                setMessages(prev => [...prev, aiMsg]);
-                setIsLoading(false);
-                return;
-            }
-
-            // 3. Fallback to normal text
-            setMessages(prev => [...prev, {
-                id: (Date.now() + 1).toString(),
-                role: 'model',
-                text: responseText
-            }]);
-
-        } catch (error: any) {
-            console.error(error);
-            setMessages(prev => [...prev, {
-                id: Date.now().toString(),
-                role: 'model',
-                text: `Erro técnico: ${error.message || "Falha desconhecida"}. \n\nDica: Por enquanto, a API aceita melhor Imagens e PDFs. Arquivos .DOCX podem não ser suportados diretamente.`,
-                isError: true
-            }]);
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    const submitQuestionnaire = (msgId: string) => {
-        const answers = questionnaireAnswers[msgId];
-        if (!answers) return;
-
-        // Format answers as a user message
-        const formattedAnswers = Object.entries(answers).map(([qId, answer]) => {
-            const question = messages.find(m => m.id === msgId)?.clarificationData?.questions.find(q => q.id === qId);
-            return `P: ${question?.text || qId}\nR: ${answer}`;
-        }).join('\n\n');
-
-        const finalMessage = `[RESPOSTAS DO USUÁRIO AO QUESTIONÁRIO]:\n${formattedAnswers}\n\n[INSTRUÇÃO]: Com base nisso, gere a estimativa JSON final agora.`;
-
-        // Send as if user typed it, but maybe show a cleaner UI bubble? 
-        // For simplicity, we show the structured text or a summary.
-        // Let's just trigger handleSend with this hidden text context, but display "Respondi o questionário" to UI.
-
-        handleSend(finalMessage);
-    };
-
-    const handleApplyClick = async (estimate: EstimateResult) => {
-        if (isApplying) return;
-        setIsApplying(true);
-        try {
-            await onApplyEstimate(estimate);
-        } catch (e) {
-            console.error(e);
-            setIsApplying(false);
-        }
-    };
+    // --- Handlers ---
 
     const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files.length > 0) {
@@ -201,153 +295,292 @@ export const EstimateModal = ({ isOpen, onClose, onApplyEstimate, clientContext,
         }
     };
 
-    const renderMessage = (msg: Message) => {
-        const estimate = msg.estimateData;
-        const clarification = msg.clarificationData;
-        const isEstimate = !!estimate && estimate.tasks && estimate.tasks.length > 0;
-        const isClarification = !!clarification && clarification.questions.length > 0;
+    const handleAnswerChange = (questionId: string, value: string) => {
+        setCurrentAnswers(prev => ({
+            ...prev,
+            [questionId]: value
+        }));
+    };
+
+    const handleRefinementSubmit = async (finalize: boolean = false) => {
+        if (!refinementData) return;
+        setIsLoading(true);
+
+        const updatedAllAnswers = { ...refinementAnswers, ...currentAnswers };
+        setRefinementAnswers(updatedAllAnswers);
+
+        const answersArray = Object.entries(currentAnswers).map(([qId, ans]) => ({
+            questionId: qId,
+            answer: ans
+        }));
+
+        // Show user answers in chat
+        const userResponseText = "**Respostas enviadas:**\n" + Object.entries(currentAnswers)
+            .map(([qId, ans]) => {
+                const q = refinementData.questions.find(q => q.id === qId);
+                return `- **${q?.text.substring(0, 40)}${q?.text && q.text.length > 40 ? '...' : ''}**: ${ans}`;
+            }).join("\n");
+
+        setMessages(prev => [...prev, {
+            id: Date.now().toString(),
+            role: 'user',
+            content: userResponseText
+        }]);
+
+        try {
+            if (finalize) {
+                // FINALIZE: Generate Plan
+                setRefinementData(null);
+                setIsRefining(false);
+
+                let megaContext = `CONTEXTO ACUMULADO:\n${projectContext}\n\n`;
+                megaContext += `DETALHAMENTO TÉCNICO DOS REQUISITOS (VIA ENTREVISTA):\n`;
+                Object.entries(updatedAllAnswers).forEach(([qId, ans]) => {
+                    megaContext += `[${qId}]: ${ans}\n`;
+                });
+
+                setMessages(prev => [...prev, {
+                    id: Date.now().toString() + 'gen',
+                    role: 'assistant',
+                    content: 'Entendido. Com base em todo o contexto refinado, estou gerando o planejamento executivo final...'
+                }]);
+
+                const estimate = await geminiService.generateEstimate(
+                    [{ role: 'user', parts: [{ text: megaContext }] }],
+                    pendingFiles // Pass full file objects with data
+                );
+
+                setMessages(prev => [
+                    ...prev,
+                    {
+                        id: Date.now().toString(),
+                        role: 'assistant',
+                        content: estimate.description || 'Estimativa gerada com sucesso.',
+                        estimate: estimate
+                    }
+                ]);
+
+            } else {
+                // CONTINUE REFINING
+                const nextRefinement = await geminiService.refineRequirements(
+                    messages
+                        .filter(m => m.id !== 'welcome' && !m.isError)
+                        .map(m => ({
+                            role: (m.role === 'user' ? 'user' : 'model') as "user" | "model",
+                            parts: [{ text: m.content || m.text || '' }]
+                        })),
+                    projectContext,
+                    answersArray
+                );
+
+                setRefinementData(nextRefinement);
+                setCurrentAnswers({});
+            }
+        } catch (err: any) {
+            console.error(err);
+            setError("Erro ao processar. Tente novamente.");
+            setMessages(prev => [...prev, {
+                id: Date.now().toString() + 'err',
+                role: 'assistant',
+                isError: true,
+                content: 'Houve um erro ao processar suas respostas. Por favor, tente novamente.'
+            }]);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const handleSend = async () => {
+        if ((!input.trim() && pendingFiles.length === 0) || isLoading) return;
+
+        const userMsg: Message = {
+            id: Date.now().toString(),
+            role: 'user',
+            content: input,
+            attachments: pendingFiles.map(f => f.name)
+        };
+
+        setMessages(prev => [...prev, userMsg]);
+        setInput('');
+        setPendingFiles([]);
+        setIsLoading(true);
+        setError(null);
+
+        try {
+            // First interaction triggers refinement if not already refining
+            if (!isRefining && messages.length <= 1) {
+                setIsRefining(true);
+                setProjectContext(input);
+
+                const refinementResponse = await geminiService.refineRequirements(
+                    messages
+                        .filter(m => m.id !== 'welcome' && !m.isError)
+                        .map(m => ({
+                            role: (m.role === 'user' ? 'user' : 'model') as "user" | "model",
+                            parts: [{ text: m.content || m.text || '' }]
+                        })).concat([{ role: 'user', parts: [{ text: input }] }]),
+                    input
+                );
+                setRefinementData(refinementResponse);
+            } else {
+                // If user types manually during refinement, we treat it as context update
+                const refinementResponse = await geminiService.refineRequirements(
+                    messages
+                        .filter(m => m.id !== 'welcome' && !m.isError)
+                        .map(m => ({
+                            role: (m.role === 'user' ? 'user' : 'model') as "user" | "model",
+                            parts: [{ text: m.content || m.text || '' }]
+                        })).concat([{ role: 'user', parts: [{ text: input }] }]),
+                    projectContext || input
+                );
+                setRefinementData(refinementResponse);
+            }
+        } catch (err: any) {
+            console.error(err);
+            setError('Erro ao processar solicitação. Verifique sua API Key ou tente novamente.');
+            setIsRefining(false);
+            setMessages(prev => [...prev, {
+                id: Date.now().toString() + 'err',
+                role: 'assistant',
+                isError: true,
+                content: `Erro: ${err.message || 'Falha na comunicação com a IA'}`
+            }]);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const handleApplyClick = async (estimate: EstimateResult) => {
+        if (isApplying) return;
+        setIsApplying(true);
+        try {
+            await onApplyEstimate(estimate);
+            onClose();
+        } catch (e) {
+            console.error(e);
+            setIsApplying(false);
+        }
+    };
+
+    // --- Renderers ---
+
+    const renderRefinementForm = () => {
+        if (!refinementData) return null;
 
         return (
-            <div key={msg.id} className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${msg.role === 'model' ? 'bg-indigo-600 text-white' : 'bg-gray-300 text-gray-700'}`}>
-                    {msg.role === 'model' ? <Bot size={18} /> : <User size={18} />}
-                </div>
-                <div className={`max-w-[85%] rounded-2xl p-4 ${msg.role === 'user'
-                    ? 'bg-indigo-600 text-white rounded-tr-none'
-                    : msg.isError
-                        ? 'bg-red-50 text-red-800 border border-red-200 rounded-tl-none'
-                        : 'bg-white border border-gray-100 shadow-sm text-gray-800 rounded-tl-none'
-                    }`}>
-                    <div className="whitespace-pre-wrap text-sm leading-relaxed">
-                        {isEstimate ? (
-                            <div>
-                                <h3 className="font-bold text-lg mb-2 flex items-center gap-2">
-                                    <Sparkles size={16} className="text-yellow-500" />
-                                    Estimativa Pronta
-                                </h3>
-                                {/* ... estimate details rendering ... */}
-                                <p className="mb-2">{estimate!.description || "Cronograma gerado."}</p>
-                                <div className="bg-gray-50 p-3 rounded border border-gray-200 text-xs mb-4">
-                                    <div className="flex justify-between mb-1">
-                                        <span className="font-semibold text-gray-600">Projeto:</span>
-                                        <span>{estimate!.project_name}</span>
-                                    </div>
-                                    <div className="flex justify-between mb-1">
-                                        <span className="font-semibold text-gray-600">Total Tarefas:</span>
-                                        <span>{estimate!.tasks.length}</span>
-                                    </div>
-                                    <div className="flex justify-between">
-                                        <span className="font-semibold text-gray-600">Confiança IA:</span>
-                                        <span className={estimate!.confidence_score > 0.7 ? 'text-green-600' : 'text-orange-500'}>
-                                            {(estimate!.confidence_score * 100).toFixed(0)}%
-                                        </span>
-                                    </div>
-                                </div>
-
-                                <button
-                                    onClick={() => handleApplyClick(estimate!)}
-                                    disabled={isApplying}
-                                    className={`w-full py-2 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 ${isApplying
-                                        ? 'bg-green-700 text-white/80 cursor-wait'
-                                        : 'bg-green-600 hover:bg-green-700 text-white'
-                                        }`}
-                                >
-                                    {isApplying ? (
-                                        <><Loader2 size={16} className="animate-spin" /> Gerando Tarefas...</>
-                                    ) : (
-                                        <><LayoutDashboard size={16} /> Gerar Gráfico de Gantt</>
-                                    )}
-                                </button>
-                            </div>
-                        ) : isClarification ? (
-                            <div className="space-y-4">
-                                <p className="font-medium text-gray-900 mb-2">{msg.text}</p>
-                                <div className="space-y-4">
-                                    {clarification!.questions.map((q) => {
-                                        const currentAnswer = questionnaireAnswers[msg.id]?.[q.id] || '';
-                                        // Check if current answer matches one of the options (otherwise it's custom)
-                                        const isCustom = currentAnswer && !q.options.includes(currentAnswer);
-
-                                        return (
-                                            <div key={q.id} className="bg-gray-50 p-3 rounded-lg border border-gray-200">
-                                                <p className="text-xs font-bold text-gray-700 mb-2">{q.text}</p>
-                                                <div className="space-y-2">
-                                                    {q.options.map((opt, idx) => (
-                                                        <label key={idx} className="flex items-center gap-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
-                                                            <input
-                                                                type="radio"
-                                                                name={`radio-${msg.id}-${q.id}`}
-                                                                value={opt}
-                                                                checked={currentAnswer === opt}
-                                                                onChange={() => setQuestionnaireAnswers(prev => ({
-                                                                    ...prev,
-                                                                    [msg.id]: { ...prev[msg.id], [q.id]: opt }
-                                                                }))}
-                                                                className="text-indigo-600 focus:ring-indigo-500"
-                                                            />
-                                                            <span className="text-xs text-gray-600">{opt}</span>
-                                                        </label>
-                                                    ))}
-                                                    {q.allow_custom_input && (
-                                                        <div className="mt-2 pt-2 border-t border-gray-200">
-                                                            <label className="flex items-center gap-2 mb-1">
-                                                                <input
-                                                                    type="radio"
-                                                                    name={`radio-${msg.id}-${q.id}`}
-                                                                    checked={isCustom || (currentAnswer !== '' && !q.options.includes(currentAnswer))}
-                                                                    onChange={() => {
-                                                                        // Just select radio, let input handle value
-                                                                        setQuestionnaireAnswers(prev => ({
-                                                                            ...prev,
-                                                                            [msg.id]: { ...prev[msg.id], [q.id]: "" } // Clear to empty string to focus input
-                                                                        }))
-                                                                    }}
-                                                                    className="text-indigo-600 focus:ring-indigo-500"
-                                                                />
-                                                                <span className="text-xs text-gray-600 font-medium">Outro / Específico:</span>
-                                                            </label>
-                                                            <input
-                                                                type="text"
-                                                                placeholder="Digite sua resposta..."
-                                                                value={isCustom ? currentAnswer : ''}
-                                                                onChange={(e) => setQuestionnaireAnswers(prev => ({
-                                                                    ...prev,
-                                                                    [msg.id]: { ...prev[msg.id], [q.id]: e.target.value }
-                                                                }))}
-                                                                onFocus={(e) => {
-                                                                    // Ensure "Other" radio is selected when typing
-                                                                    if (!isCustom) {
-                                                                        setQuestionnaireAnswers(prev => ({
-                                                                            ...prev,
-                                                                            [msg.id]: { ...prev[msg.id], [q.id]: e.target.value }
-                                                                        }))
-                                                                    }
-                                                                }}
-                                                                className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
-                                                            />
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                                <button
-                                    onClick={() => submitQuestionnaire(msg.id)}
-                                    className="w-full bg-indigo-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors mt-2"
-                                >
-                                    Enviar Respostas
-                                </button>
-                            </div>
-                        ) : (
-                            msg.text
-                        )}
+            <div className="bg-white border border-indigo-100 rounded-xl shadow-lg p-6 mb-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                <div className="flex items-center gap-2 mb-4 text-indigo-800">
+                    <div className="bg-indigo-100 p-2 rounded-lg">
+                        <Wand2 size={20} className="text-indigo-600" />
                     </div>
+                    <div>
+                        <h3 className="font-bold text-lg">Refinamento de Escopo</h3>
+                        <p className="text-xs text-indigo-600 max-w-xl">{refinementData.thought_process}</p>
+                    </div>
+                </div>
+
+                <div className="space-y-6 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                    {refinementData.questions.map((q, idx) => (
+                        <div key={q.id} className="bg-gray-50 p-4 rounded-lg border border-gray-100">
+                            <label className="block text-sm font-semibold text-gray-900 mb-3">
+                                <span className="text-indigo-600 mr-2">{idx + 1}.</span>
+                                {q.text}
+                            </label>
+
+                            <div className="space-y-2">
+                                {q.options.map((opt, i) => (
+                                    <label key={i} className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${currentAnswers[q.id] === opt
+                                        ? 'bg-indigo-50 border-indigo-300 ring-1 ring-indigo-300'
+                                        : 'bg-white border-gray-200 hover:border-indigo-200'
+                                        }`}>
+                                        <input
+                                            type="radio"
+                                            name={q.id}
+                                            value={opt}
+                                            checked={currentAnswers[q.id] === opt}
+                                            onChange={(e) => handleAnswerChange(q.id, e.target.value)}
+                                            className="w-4 h-4 text-indigo-600 border-gray-300 focus:ring-indigo-500"
+                                        />
+                                        <span className="text-sm text-gray-700">{opt}</span>
+                                    </label>
+                                ))}
+
+                                {q.allow_custom && (
+                                    <div className="mt-2 text-xs">
+                                        <input
+                                            type="text"
+                                            placeholder="Outra resposta (digite aqui)..."
+                                            className={`w-full text-sm p-3 rounded-lg border ${Object.values(q.options).includes(currentAnswers[q.id] || '')
+                                                ? 'bg-gray-50 border-gray-200 text-gray-500'
+                                                : currentAnswers[q.id] ? 'border-indigo-300 ring-1 ring-indigo-300 bg-white' : 'border-gray-200'
+                                                } focus:ring-2 focus:ring-indigo-500 outline-none transition-all`}
+                                            onChange={(e) => handleAnswerChange(q.id, e.target.value)}
+                                            value={!q.options.includes(currentAnswers[q.id] || '') ? currentAnswers[q.id] || '' : ''}
+                                        />
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+
+                <div className="flex gap-3 mt-6 pt-4 border-t border-gray-100 sticky bottom-0 bg-white z-10">
+                    <button
+                        onClick={() => handleRefinementSubmit(false)}
+                        disabled={Object.keys(currentAnswers).length < refinementData.questions.length}
+                        className="flex-1 py-3 px-4 bg-white border-2 border-indigo-600 text-indigo-700 font-bold rounded-xl hover:bg-indigo-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    >
+                        <span>Continuar Refinando</span>
+                        <ArrowRight size={16} />
+                    </button>
+
+                    <button
+                        onClick={() => handleRefinementSubmit(true)}
+                        disabled={Object.keys(currentAnswers).length < refinementData.questions.length}
+                        className="flex-1 py-3 px-4 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-indigo-200 flex items-center justify-center gap-2"
+                    >
+                        <Sparkles size={16} />
+                        <span>Gerar Plano Agora</span>
+                    </button>
+                </div>
+            </div>
+        );
+    };
+
+    const renderMessage = (msg: Message, index: number) => {
+        const isUser = msg.role === 'user';
+        return (
+            <div key={msg.id || index} className={`flex gap-3 ${isUser ? 'flex-row-reverse' : ''} animate-in fade-in slide-in-from-bottom-2`}>
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${isUser ? 'bg-gray-200 text-gray-600' : 'bg-indigo-600 text-white'}`}>
+                    {isUser ? <User size={18} /> : <Bot size={18} />}
+                </div>
+                <div className={`max-w-[85%] ${isUser ? 'bg-gray-100' : 'bg-white border border-gray-100 shadow-sm'} p-4 rounded-2xl ${isUser ? 'rounded-tr-none' : 'rounded-tl-none'} text-sm text-gray-700`}>
+                    {msg.content && <div className="whitespace-pre-wrap leading-relaxed">{msg.content}</div>}
+                    {/* Fallback for legacy text property */}
+                    {msg.text && !msg.content && <div className="whitespace-pre-wrap leading-relaxed">{msg.text}</div>}
+
+                    {msg.estimate && (
+                        <div className="mt-4 border-t border-gray-200 pt-3">
+                            <EstimateView
+                                estimate={msg.estimate}
+                                onApply={() => handleApplyClick(msg.estimate!)}
+                                isApplying={isApplying}
+                            />
+                        </div>
+                    )}
+
+                    {msg.isError && (
+                        <div className="mt-2 flex items-center gap-2 text-red-600 font-semibold">
+                            <AlertCircle size={16} />
+                            <span>Erro na geração</span>
+                        </div>
+                    )}
+
                     {msg.attachments && msg.attachments.length > 0 && (
-                        <div className="mt-2 text-xs opacity-70 flex gap-2 flex-wrap">
-                            {msg.attachments.map((f, i) => (
-                                <span key={i} className="bg-black/10 px-2 py-1 rounded flex items-center gap-1">
-                                    <Paperclip size={10} /> {f}
+                        <div className="mt-2 flex flex-wrap gap-2">
+                            {msg.attachments.map((file: string, i: number) => (
+                                <span key={i} className="inline-flex items-center gap-1 bg-gray-200/50 px-2 py-1 rounded text-xs text-gray-600 border border-gray-300">
+                                    <Paperclip size={10} /> {file}
                                 </span>
                             ))}
                         </div>
@@ -358,26 +591,27 @@ export const EstimateModal = ({ isOpen, onClose, onApplyEstimate, clientContext,
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-            <div className="bg-gray-50 w-full max-w-3xl h-[80vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
+        <div className={`fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 transition-all duration-300 ${isOpen ? 'opacity-100 visible' : 'opacity-0 invisible'}`}>
+            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+            <div className="relative bg-white w-full max-w-4xl h-[85vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden ring-1 ring-gray-900/5">
                 {/* Header */}
-                <div className="bg-white px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+                <div className="flex items-center justify-between p-4 border-b border-gray-100 bg-white z-10">
                     <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-indigo-100 rounded-full flex items-center justify-center text-indigo-600">
-                            <Sparkles size={20} />
+                        <div className="bg-indigo-50 p-2 rounded-xl">
+                            <Sparkles className="text-indigo-600" size={24} />
                         </div>
                         <div>
-                            <h2 className="text-lg font-bold text-gray-900">Estimar Projeto</h2>
-                            <p className="text-xs text-gray-500">Powered by Gemini AI</p>
+                            <h2 className="text-lg font-bold text-gray-900 leading-tight">Antigravity Architect</h2>
+                            <p className="text-xs text-gray-500 font-medium">{isConfigured ? 'IA Pronta para planejar' : 'Configuração necessária'}</p>
                         </div>
                     </div>
-                    <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-2 rounded-full hover:bg-gray-100">
+                    <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full text-gray-400 hover:text-gray-600 transition-colors">
                         <X size={20} />
                     </button>
                 </div>
 
                 {/* Messages Area */}
-                <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                <div className="flex-1 overflow-y-auto p-4 space-y-6 bg-gray-50/50 scroll-smooth relative">
                     {!isConfigured ? (
                         <div className="h-full flex flex-col items-center justify-center text-center p-8 opacity-60">
                             <AlertCircle size={48} className="text-orange-400 mb-4" />
@@ -387,24 +621,31 @@ export const EstimateModal = ({ isOpen, onClose, onApplyEstimate, clientContext,
                             </p>
                         </div>
                     ) : (
-                        messages.map(renderMessage)
+                        <>
+                            {messages.map((msg, idx) => renderMessage(msg, idx))}
+
+                            {/* Render Refinement Form if active */}
+                            {isRefining && refinementData && renderRefinementForm()}
+
+                            {/* Loading State */}
+                            {isLoading && (
+                                <div className="flex gap-3 animate-pulse">
+                                    <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center flex-shrink-0">
+                                        <Bot size={18} />
+                                    </div>
+                                    <div className="bg-white border border-gray-100 shadow-sm p-4 rounded-2xl rounded-tl-none flex items-center gap-2 text-gray-500 text-sm">
+                                        <Loader2 size={16} className="animate-spin" />
+                                        <span>Analisando solicitação e gerando planejamento...</span>
+                                    </div>
+                                </div>
+                            )}
+                            <div ref={messagesEndRef} />
+                        </>
                     )}
-                    {isLoading && (
-                        <div className="flex gap-3">
-                            <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center flex-shrink-0">
-                                <Bot size={18} />
-                            </div>
-                            <div className="bg-white border border-gray-100 shadow-sm p-4 rounded-2xl rounded-tl-none flex items-center gap-2 text-gray-500 text-sm">
-                                <Loader2 size={16} className="animate-spin" />
-                                <span>Analisando e escrevendo...</span>
-                            </div>
-                        </div>
-                    )}
-                    <div ref={messagesEndRef} />
                 </div>
 
-                {/* Input Area */}
-                <div className="bg-white p-4 border-t border-gray-200">
+                {/* Input Area - Hide if Refining and waiting for input */}
+                <div className={`bg-white p-4 border-t border-gray-200 z-10 ${isRefining && refinementData ? 'opacity-50 pointer-events-none filter blur-[1px]' : ''}`}>
                     {pendingFiles.length > 0 && (
                         <div className="flex gap-2 mb-3 overflow-x-auto pb-2">
                             {pendingFiles.map((f, i) => (

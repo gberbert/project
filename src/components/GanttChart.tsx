@@ -2,7 +2,7 @@ import { Gantt, Task as GanttLibTask, ViewMode } from 'gantt-task-react';
 import "gantt-task-react/dist/index.css";
 import { Task } from '../types';
 import React, { useMemo, useState, useEffect } from 'react';
-import { checkIsHoliday } from '../lib/utils';
+import { checkIsHoliday, calculateBusinessDays } from '../lib/utils';
 import { Plus, Minus, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, GripVertical, Trash2, Smartphone, Minimize2, ZoomOut, ZoomIn, PanelLeftClose, PanelLeftOpen, FolderOpen, FolderClosed, BarChart3, MoreHorizontal } from 'lucide-react';
 import {
     DndContext,
@@ -119,7 +119,7 @@ const SortableTaskRow = ({
                 } ${isDragging ? 'shadow-lg ring-1 ring-indigo-500 opacity-90' : ''}`}
         >
             <div
-                className={`px-2 truncate font-medium text-gray-700 flex-1 border-r border-gray-100 h-full flex items-center gap-2 ${isCompact ? 'text-[10px]' : ''}`}
+                className={`px-2 truncate font-medium text-gray-700 flex-1 border-r border-gray-100 h-full flex items-center gap-2 ${isCompact ? 'text-[11px]' : ''}`}
                 style={{ width: isCompact ? '180px' : '280px', minWidth: isCompact ? '180px' : '280px' }}
             >
                 {/* Drag Handle - Hide in landscape/compact to avoid touch conflict */}
@@ -138,69 +138,74 @@ const SortableTaskRow = ({
                                 if (onToggleCollapse) onToggleCollapse(task.id);
                             }}
                             className="mr-2 p-0.5 rounded-sm flex items-center justify-center transition-colors shadow-sm bg-white hover:bg-indigo-50 text-indigo-600 ring-1 ring-indigo-600"
-                            style={{ width: 18, height: 18 }}
+                            style={{ width: isCompact ? 14 : 18, height: isCompact ? 14 : 18 }} // Smaller button in compact
                             title={isCollapsed ? "Expandir" : "Recolher"}
                         >
-                            {isCollapsed ? <Plus size={12} strokeWidth={3} /> : <Minus size={12} strokeWidth={3} />}
+                            {isCollapsed ? <Plus size={isCompact ? 10 : 12} strokeWidth={3} /> : <Minus size={isCompact ? 10 : 12} strokeWidth={3} />}
                         </button>
                     ) : null}
                 </div>
 
                 {/* Name (Click to Edit) */}
                 <div
-                    className={`flex-1 cursor-pointer truncate ${(task.type === 'project' || hasChildren) ? 'font-bold text-blue-600' : ''}`}
+                    className={`flex-1 cursor-pointer truncate ${(task.type === 'project' || hasChildren) ? 'font-bold text-blue-600' : ''} text-[11px] flex items-center h-full`}
                     onClick={(e) => { e.stopPropagation(); originalTask && onEdit(originalTask); }}
                     title={originalTask ? originalTask.name : task.name}
                 >
                     {originalTask ? originalTask.name : task.name}
                 </div>
 
-                {/* Indent/Outdent Buttons (Visible on Hover) - Hide in compact to save space */}
-                {!isCompact && (
-                    <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-opacity mr-2">
-                        <button
-                            onClick={(e) => { e.stopPropagation(); originalTask && onOutdent(originalTask); }}
-                            className="p-1 hover:bg-gray-200 rounded text-gray-500 hover:text-indigo-600"
-                            title="Diminuir Recuo"
-                        >
-                            <ChevronLeft size={14} />
-                        </button>
-                        <button
-                            onClick={(e) => { e.stopPropagation(); originalTask && onIndent(originalTask); }}
-                            className="p-1 hover:bg-gray-200 rounded text-gray-500 hover:text-indigo-600"
-                            title="Aumentar Recuo"
-                        >
-                            <ChevronRight size={14} />
-                        </button>
-                        <button
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                if (originalTask && onDeleteTask && confirm('Tem certeza que deseja excluir esta tarefa?')) {
-                                    onDeleteTask(originalTask.id);
-                                }
-                            }}
-                            className="p-1 hover:bg-red-50 rounded text-gray-500 hover:text-red-500"
-                            title="Excluir"
-                        >
-                            <Trash2 size={14} />
-                        </button>
-                    </div>
-                )}
+                {/* Indent/Outdent Buttons (Always Visible) */}
+                <div className="flex items-center gap-0.5 mr-1">
+                    <button
+                        onClick={(e) => { e.stopPropagation(); originalTask && onOutdent(originalTask); }}
+                        className="p-0.5 hover:bg-gray-200 rounded text-gray-400 hover:text-indigo-600"
+                        title="Diminuir Recuo"
+                    >
+                        <ChevronLeft size={12} />
+                    </button>
+                    <button
+                        onClick={(e) => { e.stopPropagation(); originalTask && onIndent(originalTask); }}
+                        className="p-0.5 hover:bg-gray-200 rounded text-gray-400 hover:text-indigo-600"
+                        title="Aumentar Recuo"
+                    >
+                        <ChevronRight size={12} />
+                    </button>
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            if (originalTask && onDeleteTask && confirm('Tem certeza que deseja excluir esta tarefa?')) {
+                                onDeleteTask(originalTask.id);
+                            }
+                        }}
+                        className="p-0.5 hover:bg-red-50 rounded text-gray-400 hover:text-red-500"
+                        title="Excluir"
+                    >
+                        <Trash2 size={12} />
+                    </button>
+                </div>
             </div>
 
             <div
-                className={`px-4 truncate text-gray-500 border-r border-gray-100 h-full flex items-center justify-center cursor-pointer ${isCompact ? 'text-[10px]' : ''}`}
+                className={`px-4 truncate text-gray-500 border-r border-gray-100 h-full flex items-center justify-center cursor-pointer text-[11px]`}
                 style={{ width: isCompact ? '80px' : '100px', minWidth: isCompact ? '80px' : '100px' }}
                 onClick={(e) => { e.stopPropagation(); originalTask && onEdit(originalTask); }}
             >
-                {task.start.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
+                {task.start.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
             </div>
             <div
-                className={`px-4 truncate text-gray-500 h-full flex items-center justify-center cursor-pointer ${isCompact ? 'text-[10px]' : ''}`}
+                className={`px-4 truncate text-gray-500 h-full flex items-center justify-center cursor-pointer text-[11px]`}
                 style={{ width: isCompact ? '80px' : '100px', minWidth: isCompact ? '80px' : '100px' }}
                 onClick={(e) => { e.stopPropagation(); originalTask && onEdit(originalTask); }}
             >
-                {task.end.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
+                {task.end.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+            </div>
+            <div
+                className={`px-4 truncate text-gray-500 h-full flex items-center justify-center cursor-pointer text-[11px] bg-gray-50/50`}
+                style={{ width: isCompact ? '60px' : '80px', minWidth: isCompact ? '60px' : '80px' }}
+                title="Duração em Dias Úteis"
+            >
+                {calculateBusinessDays(task.start, task.end)}d
             </div>
         </div>
     );
@@ -301,6 +306,7 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
     const initialScrollDone = React.useRef(false);
 
     const collapsedInitialized = React.useRef(false);
+    const applyStylesTimeout = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
     useEffect(() => {
         if (tasks.length > 0 && !collapsedInitialized.current) {
@@ -371,12 +377,14 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
     }, [isLandscapeMode]);
 
     // --- DOM Manipulation Logic (Holiday Styling + Date Text Replacement + Delayed Task Icons + Auto Scroll) ---
+    /*
     useEffect(() => {
         initialScrollDone.current = false;
         const container = containerRef.current;
         if (!container) return;
 
-        let observer: MutationObserver | undefined;
+
+        let observer: MutationObserver | undefined; // Declare explicitly
 
         const applyStyles = () => {
             if (observer) observer.disconnect();
@@ -504,7 +512,7 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                     }
 
                     // Reset Size
-                    if (isCompact) el.style.fontSize = '9px';
+                    if (isCompact || isSuperCompact) el.style.fontSize = '8px';
                     else el.style.fontSize = '';
 
                     // Skip Headers
@@ -645,7 +653,6 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                             text.setAttribute('y', '12');
                             text.setAttribute('text-anchor', 'middle');
                             text.setAttribute('fill', '#ef4444');
-                            text.setAttribute('font-size', '10px');
                             text.setAttribute('font-weight', 'bold');
                             rulerGroup.appendChild(text);
                         }
@@ -657,6 +664,14 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                     }
                 });
             }
+
+            // Fix Text Vertical Alignment in Grid Rows
+            const taskTextElements = container.querySelectorAll('.barLabel');
+            taskTextElements.forEach((el) => {
+                if (el instanceof SVGTextElement) {
+                    el.setAttribute('dy', '0'); // Remove library's default centering offset if it interferes
+                }
+            });
 
             // Auto-Scroll Logic
             if (!initialScrollDone.current) {
@@ -701,6 +716,11 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                     }
                 }
             }
+
+            // Re-connect after work is done
+            if (observer) {
+                observer.observe(container, { childList: true, subtree: true, attributes: true });
+            }
         };
 
         // Initialize MutationObserver
@@ -709,18 +729,59 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                 m.type === 'childList' ||
                 (m.type === 'attributes' && m.attributeName !== 'style' && m.attributeName !== 'class')
             );
-            if (relevantMutation) applyStyles();
+            if (relevantMutation) {
+                // Debounce Logic: Clear previous timeout and set new one
+                if (applyStylesTimeout.current) clearTimeout(applyStylesTimeout.current);
+
+                applyStylesTimeout.current = setTimeout(() => {
+                    requestAnimationFrame(applyStyles);
+                }, 100);
+            }
         });
 
-        // Run immediately and on mutation
-        const timer = setTimeout(applyStyles, 200);
+        // ---------------------------------------------------------
+        // AGGRESSIVE SCROLL HANDLING (Capture Phase)
+        // ---------------------------------------------------------
+        const handleNativeScroll = () => {
+            // 1. STOP: Disconnect Observer immediately to prevent fighting
+            if (observer) observer.disconnect();
+
+            // 2. CANCEL: Clear any pending style application
+            if (applyStylesTimeout.current) clearTimeout(applyStylesTimeout.current);
+
+            // 3. DEBOUNCE: Schedule reconnect only after scroll STOPS
+            applyStylesTimeout.current = setTimeout(() => {
+                requestAnimationFrame(() => {
+                    applyStyles();
+                    // Reconnect observer is handled inside applyStyles or here?
+                    // applyStyles usually just runs logic. 
+                    // We need to make sure we reconnect.
+                    if (observer && container) {
+                        observer.observe(container, { childList: true, subtree: true, attributes: true });
+                    }
+                });
+            }, 100); // Wait 100ms after last scroll event
+        };
+
+        // Attach with CAPTURE to catch internal scrolling from the library
+        if (container) {
+            container.addEventListener('scroll', handleNativeScroll, { capture: true, passive: true });
+        }
+
+        // Run immediately (also with small delay to ensure render)
+        const initialTimer = setTimeout(() => requestAnimationFrame(applyStyles), 200);
         observer.observe(container, { childList: true, subtree: true, attributes: true });
 
         return () => {
-            clearTimeout(timer);
-            observer.disconnect();
+            if (initialTimer) clearTimeout(initialTimer);
+            if (applyStylesTimeout.current) clearTimeout(applyStylesTimeout.current);
+            if (observer) observer.disconnect();
+            if (container) {
+                container.removeEventListener('scroll', handleNativeScroll, { capture: true });
+            }
         };
-    }, [tasks, selectedTaskId, isCompact, isLandscapeMode, view]);
+    }, [tasks, selectedTaskId, isCompact, isLandscapeMode, view, isSuperCompact]);
+    */
 
     // --- Helper for Gantt Data ---
     // --- Helper for Gantt Data ---
@@ -770,22 +831,21 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
             };
         });
 
-        // Add Dummy Task to extend view to 2035 for Annual view
-        if (view === ViewMode.Year) {
-            mappedTasks.push({
-                start: new Date('2035-01-01'),
-                end: new Date('2035-12-31'),
-                name: "",
-                id: "dummy-extender-2035",
-                type: 'task',
-                progress: 0,
-                isDisabled: true,
-                styles: { backgroundColor: 'transparent', backgroundSelectedColor: 'transparent', progressColor: 'transparent' },
-                hideChildren: false,
-                project: undefined,
-                dependencies: []
-            });
-        }
+        // Add Dummy Task to extend view 5 years forward (Always)
+        const targetYear = today.getFullYear() + 5;
+        mappedTasks.push({
+            start: new Date(`${targetYear}-01-01`),
+            end: new Date(`${targetYear}-12-31`),
+            name: "",
+            id: `dummy-extender-${targetYear}`,
+            type: 'task',
+            progress: 0,
+            isDisabled: true,
+            styles: { backgroundColor: 'transparent', backgroundSelectedColor: 'transparent', progressColor: 'transparent' },
+            hideChildren: false,
+            project: undefined,
+            dependencies: []
+        });
 
 
 
@@ -814,26 +874,8 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
             return true;
         });
 
-        // 4. Add Spacer for View Range
-        const spacerStart = new Date();
-        const spacerEnd = new Date(spacerStart);
-        if (view === ViewMode.Month) spacerEnd.setFullYear(spacerStart.getFullYear() + 1);
-        else if (view === ViewMode.Week) spacerEnd.setMonth(spacerStart.getMonth() + 3);
-        else spacerEnd.setMonth(spacerStart.getMonth() + 1);
-
-        visibleTasks.push({
-            id: 'gantt-spacer',
-            type: 'task',
-            name: '',
-            start: spacerStart,
-            end: spacerEnd,
-            progress: 0,
-            styles: { backgroundColor: 'transparent', progressColor: 'transparent', backgroundSelectedColor: 'transparent' },
-            isDisabled: true,
-            dependencies: [],
-            hideChildren: true,
-            project: undefined
-        });
+        // 4. Add Spacer for View Range - REMOVED to prevent extra blank row
+        // If date extension is needed, rely on dummy-extender or ensure logic doesn't add visible row.
 
         return visibleTasks;
     }, [tasks, collapsedTaskIds, view]);
@@ -864,7 +906,7 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
 
     // --- View Configuration ---
     const effectiveCompact = isCompact || isSuperCompact; // Logic helper
-    const rowHeight = isSuperCompact ? 24 : (isCompact ? 30 : 40); // 24px is very tight
+    const rowHeight = isSuperCompact ? 24 : (isCompact ? 28 : 34); // Adjusted for 13px font base
     const columnWidth = view === ViewMode.Year ? 130 : (isSuperCompact ? 30 : (isCompact ? 40 : 65));
     const listCellWidth = effectiveCompact ? "180px" : "280px";
 
@@ -874,8 +916,22 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
             font-size: 10px !important;
         }
         .gantt-landscape-container .grid-header {
-            height: 30px !important; 
+            height: 26px !important; 
         }
+        /* Landscape Container Overrides */
+        .gantt-landscape-container .grid-header > text {
+             font-size: 9px !important; 
+             transform: translateY(-14px); /* Pull text up to center it visually */
+             dominant-baseline: auto; /* Reset to let transform handle it */
+        }
+        /* Vertical Align Text and Reduce Task List Font */
+        .gantt-landscape-container .taskListWrapper svg text {
+             dominant-baseline: middle;
+             alignment-baseline: middle;
+             font-size: 9px !important;
+             transform: translateY(1px); /* Fine-tune optical center */
+        }
+        
         /* Ensure the gantt internal container allows scrolling */
         .gantt-landscape-container > div {
             overflow: auto !important;
@@ -929,7 +985,7 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
             {isLandscapeMode && <style>{landscapeCss}</style>}
 
             {/* Toolbar Header */}
-            <div className={`flex items-center justify-between p-2 lg:p-4 border-b border-gray-100 bg-gray-50 flex-shrink-0 ${isLandscapeMode ? 'px-8 py-2 h-14' : ''}`}>
+            <div className={`flex items-center justify-between p-2 border-b border-gray-100 bg-gray-50 flex-shrink-0 ${isLandscapeMode ? 'px-8 py-2 h-14' : ''}`}>
                 <div className="flex items-center gap-2">
                     <h3 className={`font-bold text-gray-700 whitespace-nowrap ${isCompact || isSuperCompact ? 'text-sm' : ''}`}>Cronograma</h3>
 
@@ -1094,7 +1150,7 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                 </div>
             </div>
 
-            <div ref={scrollContainerRef} className={`flex-1 overflow-x-auto overflow-y-auto bg-white w-full touch-pan-x touch-pan-y ${isMobile ? 'mobile-gantt-fix' : ''}`} style={{ WebkitOverflowScrolling: 'touch' }}>
+            <div ref={scrollContainerRef} className={`flex-1 overflow-x-auto overflow-y-auto bg-white w-full touch-pan-x touch-pan-y ${isMobile ? 'mobile-gantt-fix' : ''}`} style={{ WebkitOverflowScrolling: 'touch', contain: 'strict', willChange: 'scroll-position', transform: 'translate3d(0,0,0)', backfaceVisibility: 'hidden', perspective: 1000 }}>
                 {(!tasks || tasks.length === 0) ? (
                     <div className="w-full h-full flex flex-col items-center justify-center text-gray-400 min-h-[200px]">
                         <p>No tasks to display. Click "Nova Tarefa" to start.</p>
@@ -1149,6 +1205,9 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                                 </div>
                                 <div className="px-4 h-full flex items-center justify-center" style={{ width: effectiveCompact ? '80px' : '100px', minWidth: effectiveCompact ? '80px' : '100px' }}>
                                     Fim
+                                </div>
+                                <div className="px-4 h-full flex items-center justify-center text-gray-400" style={{ width: effectiveCompact ? '60px' : '80px', minWidth: effectiveCompact ? '60px' : '80px' }}>
+                                    Dias
                                 </div>
                             </div>
                         )}
@@ -1235,8 +1294,11 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                                             <div className="px-4 border-r border-gray-200 h-full flex items-center justify-center" style={{ width: effectiveCompact ? '80px' : '100px', minWidth: effectiveCompact ? '80px' : '100px' }}>
                                                 Início
                                             </div>
-                                            <div className="px-4 h-full flex items-center justify-center" style={{ width: effectiveCompact ? '80px' : '100px', minWidth: effectiveCompact ? '80px' : '100px' }}>
+                                            <div className="px-4 border-r border-gray-200 h-full flex items-center justify-center" style={{ width: effectiveCompact ? '80px' : '100px', minWidth: effectiveCompact ? '80px' : '100px' }}>
                                                 Fim
+                                            </div>
+                                            <div className="px-4 h-full flex items-center justify-center text-gray-400" style={{ width: effectiveCompact ? '60px' : '80px', minWidth: effectiveCompact ? '60px' : '80px' }}>
+                                                Dias
                                             </div>
                                         </div>
                                     )}

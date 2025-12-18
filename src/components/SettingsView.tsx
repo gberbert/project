@@ -61,7 +61,7 @@ export const SettingsView = () => {
                         </div>
                     </div>
 
-                    <div className="overflow-hidden bg-gray-50 rounded-lg border border-gray-200">
+                    <div className="overflow-x-auto bg-gray-50 rounded-lg border border-gray-200">
                         <table className="w-full text-sm text-left">
                             <thead className="text-xs text-gray-500 uppercase bg-gray-100 border-b">
                                 <tr>
@@ -80,7 +80,7 @@ export const SettingsView = () => {
                                             {u.displayName || 'Sem Nome'}
                                             {u.uid === user?.uid && <span className="ml-2 text-[10px] bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded">Você</span>}
                                         </td>
-                                        <td className="px-6 py-4 text-gray-500">{u.email}</td>
+                                        <td className="px-6 py-4 text-gray-500 max-w-[200px] truncate" title={u.email}>{u.email}</td>
                                         <td className="px-6 py-4 text-center">
                                             <span className={`px-2 py-1 rounded text-xs font-bold ${u.role === 'master' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-600'}`}>
                                                 {u.role.toUpperCase()}
@@ -112,15 +112,21 @@ export const SettingsView = () => {
                                         </td>
                                         <td className="px-6 py-4 text-right">
                                             {u.role !== 'master' && (
-                                                <label className="relative inline-flex items-center cursor-pointer">
-                                                    <input
-                                                        type="checkbox"
-                                                        className="sr-only peer"
-                                                        checked={u.isApproved}
-                                                        onChange={() => handleToggleAccess(u.uid, u.isApproved)}
-                                                    />
-                                                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
-                                                </label>
+                                                u.isApproved ? (
+                                                    <button
+                                                        onClick={() => handleToggleAccess(u.uid, true)}
+                                                        className="text-red-500 hover:text-red-700 font-medium text-xs border border-red-200 hover:bg-red-50 px-3 py-1.5 rounded transition-colors"
+                                                    >
+                                                        Bloquear
+                                                    </button>
+                                                ) : (
+                                                    <button
+                                                        onClick={() => handleToggleAccess(u.uid, false)}
+                                                        className="bg-green-600 text-white hover:bg-green-700 font-medium text-xs px-4 py-1.5 rounded shadow-sm transition-all transform active:scale-95"
+                                                    >
+                                                        Aprovar
+                                                    </button>
+                                                )
                                             )}
                                         </td>
                                     </tr>

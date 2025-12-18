@@ -125,9 +125,14 @@ export const recalculateGantt = (tasks: Task[]): Task[] => {
     // "Auto-Scheduling: If Predecessor moves, Successor moves."
 
     // We iterate X times to propagate.
-    for (let i = 0; i < tasks.length; i++) {
+    // We iterate until stable or safety limit.
+    // Deep chains can be as long as N tasks.
+    const MAX_ITERATIONS = Math.max(tasks.length, 100);
+
+    for (let i = 0; i < MAX_ITERATIONS; i++) {
         let changed = false;
-        processed = processed.map(task => {
+
+        const nextProcessed = processed.map(task => {
             if (task.dependencies.length === 0) return task;
 
             // Find max end of dependencies
@@ -139,22 +144,25 @@ export const recalculateGantt = (tasks: Task[]): Task[] => {
                 }
             });
 
-            if (maxDepEnd > task.start.getTime()) {
-                // Collision! Push task forward.
-                const diff = maxDepEnd - task.start.getTime();
-                // Shift whole task
-                return {
-                    ...task,
-                    start: new Date(maxDepEnd),
-                    end: new Date(task.end.getTime() + diff)
-                };
+            if (maxDepEnd > 0) {
+                // Strict Auto-Snap: Successor ALWAYS starts after predecessor
+                const strictStart = addDays(new Date(maxDepEnd), 1);
+
+                if (strictStart.getTime() !== task.start.getTime()) {
+                    changed = true; // Flag change
+                    const duration = task.end.getTime() - task.start.getTime();
+                    return {
+                        ...task,
+                        start: strictStart,
+                        end: new Date(strictStart.getTime() + duration)
+                    };
+                }
             }
             return task;
         });
-        // We really should check 'changed' but simple map above is unconditional replacer. 
-        // Real implementation should flag changes. 
-        // For 'safety', 5 passes is generic enough for deep chains.
-        if (i > 5) break;
+
+        processed = nextProcessed;
+        if (!changed) break; // Stability reached
     }
 
 
