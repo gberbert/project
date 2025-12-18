@@ -306,7 +306,6 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
     const initialScrollDone = React.useRef(false);
 
     const collapsedInitialized = React.useRef(false);
-    const applyStylesTimeout = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
     useEffect(() => {
         if (tasks.length > 0 && !collapsedInitialized.current) {
@@ -377,16 +376,18 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
     }, [isLandscapeMode]);
 
     // --- DOM Manipulation Logic (Holiday Styling + Date Text Replacement + Delayed Task Icons + Auto Scroll) ---
-    /*
     useEffect(() => {
         initialScrollDone.current = false;
         const container = containerRef.current;
         if (!container) return;
 
-
-        let observer: MutationObserver | undefined; // Declare explicitly
+        let observer: MutationObserver | undefined;
 
         const applyStyles = () => {
+            // Logic restored to original sync execution for simplicity as requested, 
+            // but wrapped in requestAnimationFrame to define a baseline for future attempts if needed, 
+            // OR strictly identical to original:
+
             if (observer) observer.disconnect();
 
             const svgs = Array.from(container.querySelectorAll('svg'));
@@ -723,65 +724,23 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
             }
         };
 
-        // Initialize MutationObserver
         observer = new MutationObserver((mutations) => {
             const relevantMutation = mutations.some(m =>
                 m.type === 'childList' ||
                 (m.type === 'attributes' && m.attributeName !== 'style' && m.attributeName !== 'class')
             );
-            if (relevantMutation) {
-                // Debounce Logic: Clear previous timeout and set new one
-                if (applyStylesTimeout.current) clearTimeout(applyStylesTimeout.current);
-
-                applyStylesTimeout.current = setTimeout(() => {
-                    requestAnimationFrame(applyStyles);
-                }, 100);
-            }
+            if (relevantMutation) applyStyles();
         });
 
-        // ---------------------------------------------------------
-        // AGGRESSIVE SCROLL HANDLING (Capture Phase)
-        // ---------------------------------------------------------
-        const handleNativeScroll = () => {
-            // 1. STOP: Disconnect Observer immediately to prevent fighting
-            if (observer) observer.disconnect();
-
-            // 2. CANCEL: Clear any pending style application
-            if (applyStylesTimeout.current) clearTimeout(applyStylesTimeout.current);
-
-            // 3. DEBOUNCE: Schedule reconnect only after scroll STOPS
-            applyStylesTimeout.current = setTimeout(() => {
-                requestAnimationFrame(() => {
-                    applyStyles();
-                    // Reconnect observer is handled inside applyStyles or here?
-                    // applyStyles usually just runs logic. 
-                    // We need to make sure we reconnect.
-                    if (observer && container) {
-                        observer.observe(container, { childList: true, subtree: true, attributes: true });
-                    }
-                });
-            }, 100); // Wait 100ms after last scroll event
-        };
-
-        // Attach with CAPTURE to catch internal scrolling from the library
-        if (container) {
-            container.addEventListener('scroll', handleNativeScroll, { capture: true, passive: true });
-        }
-
-        // Run immediately (also with small delay to ensure render)
-        const initialTimer = setTimeout(() => requestAnimationFrame(applyStyles), 200);
+        // Run immediately and on mutation
+        const timer = setTimeout(applyStyles, 200);
         observer.observe(container, { childList: true, subtree: true, attributes: true });
 
         return () => {
-            if (initialTimer) clearTimeout(initialTimer);
-            if (applyStylesTimeout.current) clearTimeout(applyStylesTimeout.current);
-            if (observer) observer.disconnect();
-            if (container) {
-                container.removeEventListener('scroll', handleNativeScroll, { capture: true });
-            }
+            clearTimeout(timer);
+            observer.disconnect();
         };
     }, [tasks, selectedTaskId, isCompact, isLandscapeMode, view, isSuperCompact]);
-    */
 
     // --- Helper for Gantt Data ---
     // --- Helper for Gantt Data ---
@@ -1150,7 +1109,7 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                 </div>
             </div>
 
-            <div ref={scrollContainerRef} className={`flex-1 overflow-x-auto overflow-y-auto bg-white w-full touch-pan-x touch-pan-y ${isMobile ? 'mobile-gantt-fix' : ''}`} style={{ WebkitOverflowScrolling: 'touch', contain: 'strict', willChange: 'scroll-position', transform: 'translate3d(0,0,0)', backfaceVisibility: 'hidden', perspective: 1000 }}>
+            <div ref={scrollContainerRef} className={`flex-1 overflow-x-auto overflow-y-auto bg-white w-full touch-pan-x touch-pan-y ${isMobile ? 'mobile-gantt-fix' : ''}`} style={{ WebkitOverflowScrolling: 'touch' }}>
                 {(!tasks || tasks.length === 0) ? (
                     <div className="w-full h-full flex flex-col items-center justify-center text-gray-400 min-h-[200px]">
                         <p>No tasks to display. Click "Nova Tarefa" to start.</p>
