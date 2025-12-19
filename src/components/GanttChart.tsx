@@ -390,7 +390,7 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
 
             if (observer) observer.disconnect();
 
-            const svgs = Array.from(container.querySelectorAll('svg'));
+            const svgs = Array.from(container.querySelectorAll('svg')).filter(svg => !svg.closest('button') && !svg.closest('.icon-wrapper'));
             let todayScrollTarget: { x: number; element: Element } | null = null;
 
             // Determine View Start (Earliest of Tasks or Today)
