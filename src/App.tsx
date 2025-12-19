@@ -16,12 +16,13 @@ import { useProjectLogic } from './hooks/useProjectLogic';
 import { isAfter, isWeekend, addDays, differenceInDays, addBusinessDays } from 'date-fns';
 
 import { Task, Resource, Project } from './types';
-import { Database, CloudOff, Menu, Sparkles, CheckCircle, Activity, Lock, LogOut, ChevronDown, FileText, CheckSquare, Target } from 'lucide-react';
+import { Database, CloudOff, Menu, Sparkles, CheckCircle, Activity, Lock, LogOut, ChevronDown, FileText, CheckSquare, Target, Pencil, Trash2 } from 'lucide-react';
 import { ProjectService, getNextWorkingDay } from './services/projectService';
 import { StabilizationModal } from './components/StabilizationModal';
 import { useAuth } from './contexts/AuthContext';
 import { LoginView } from './components/LoginView';
 import { MarkdownRenderer } from './components/MarkdownRenderer';
+import { MarkdownEditor } from './components/MarkdownEditor';
 import { TopMenuBar } from './components/TopMenuBar';
 import { parseProjectXML } from './services/ProjectImportService';
 import { exportProjectToXML } from './services/ProjectExportService';
@@ -246,6 +247,52 @@ function App() {
 
     const [selectedProjectId, setSelectedProjectId] = useState<string>('1');
     const [clientTasks, setClientTasks] = useState<Task[]>([]);
+
+    // --- Editing State ---
+    const [editingDocKey, setEditingDocKey] = useState<string | null>(null);
+    const [editingPremises, setEditingPremises] = useState(false);
+
+    // --- Editing Handlers ---
+    const handleSaveDoc = (key: string, newContent: string) => {
+        const activeProject = projects.find(p => p.id === selectedProjectId);
+        if (activeProject && activeProject.documentation) {
+            const updatedDoc = {
+                ...activeProject.documentation,
+                [key]: newContent
+            };
+            const updatedProject = { ...activeProject, documentation: updatedDoc };
+            setProjects(prev => prev.map(p => p.id === activeProject.id ? updatedProject : p));
+            ProjectService.updateProject(activeProject.id, { documentation: updatedDoc });
+            setEditingDocKey(null);
+        }
+    };
+
+    const handleDeleteDoc = (key: string) => {
+        if (!confirm('Tem certeza que deseja remover este bloco de documentação?')) return;
+        const activeProject = projects.find(p => p.id === selectedProjectId);
+        if (activeProject && activeProject.documentation) {
+            const updatedDoc = { ...activeProject.documentation };
+            delete updatedDoc[key];
+            const updatedProject = { ...activeProject, documentation: updatedDoc };
+            setProjects(prev => prev.map(p => p.id === activeProject.id ? updatedProject : p));
+            ProjectService.updateProject(activeProject.id, { documentation: updatedDoc });
+        }
+    };
+
+    const handleSavePremises = (newContent: string) => {
+        const activeProject = projects.find(p => p.id === selectedProjectId);
+        if (activeProject) {
+            // Split by line and remove bullet points
+            const lines = newContent.split('\n')
+                .map(line => line.replace(/^-\s*/, '').trim())
+                .filter(l => l.length > 0);
+
+            const updatedProject = { ...activeProject, technicalPremises: lines };
+            setProjects(prev => prev.map(p => p.id === activeProject.id ? updatedProject : p));
+            ProjectService.updateProject(activeProject.id, { technicalPremises: lines });
+            setEditingPremises(false);
+        }
+    };
 
     useEffect(() => {
         document.title = "UERJ-FAF 2025";
@@ -1406,50 +1453,77 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
                                                     </p>
                                                 </div>
 
-                                                {/* Strategic Context & Tech Solution - Grid */}
-                                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                                                    <div className="bg-white p-6 rounded-2xl border border-indigo-100 shadow-sm hover:shadow-md transition-shadow">
-                                                        <div className="flex items-center gap-3 mb-4 pb-3 border-b border-gray-100">
-                                                            <div className="p-2 bg-indigo-50 rounded-lg text-indigo-600">
-                                                                <Target size={24} />
-                                                            </div>
-                                                            <h4 className="text-lg font-bold text-gray-900">Visão Geral e Contexto</h4>
-                                                        </div>
-                                                        <MarkdownRenderer content={activeProject.documentation.context_overview} className="text-sm" />
-                                                    </div>
+                                                {/* Dynamic Documentation Grid */}
+                                                <div className="grid grid-cols-1 gap-6">
+                                                    {Object.entries(activeProject.documentation).map(([key, content]) => {
+                                                        const title = key.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
 
-                                                    <div className="bg-white p-6 rounded-2xl border border-blue-100 shadow-sm hover:shadow-md transition-shadow">
-                                                        <div className="flex items-center gap-3 mb-4 pb-3 border-b border-gray-100">
-                                                            <div className="p-2 bg-blue-50 rounded-lg text-blue-600">
-                                                                <Database size={24} />
-                                                            </div>
-                                                            <h4 className="text-lg font-bold text-gray-900">Solução Técnica</h4>
-                                                        </div>
-                                                        <MarkdownRenderer content={activeProject.documentation.technical_solution} className="text-sm" />
-                                                    </div>
-                                                </div>
+                                                        let styleClass = "border-gray-100";
+                                                        let iconColor = "bg-gray-50 text-gray-600";
+                                                        let IconComponent = FileText;
 
-                                                {/* Implementation & Testing - Grid */}
-                                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                                                    <div className="bg-white p-6 rounded-2xl border border-green-100 shadow-sm hover:shadow-md transition-shadow">
-                                                        <div className="flex items-center gap-3 mb-4 pb-3 border-b border-gray-100">
-                                                            <div className="p-2 bg-green-50 rounded-lg text-green-600">
-                                                                <Activity size={24} />
-                                                            </div>
-                                                            <h4 className="text-lg font-bold text-gray-900">Planos de Implementação</h4>
-                                                        </div>
-                                                        <MarkdownRenderer content={activeProject.documentation.implementation_steps} className="text-sm" />
-                                                    </div>
+                                                        if (key === 'context_overview') {
+                                                            styleClass = "border-indigo-100";
+                                                            iconColor = "bg-indigo-50 text-indigo-600";
+                                                            IconComponent = Target;
+                                                        } else if (key === 'technical_solution') {
+                                                            styleClass = "border-blue-100";
+                                                            iconColor = "bg-blue-50 text-blue-600";
+                                                            IconComponent = Database;
+                                                        } else if (key === 'implementation_steps') {
+                                                            styleClass = "border-green-100";
+                                                            iconColor = "bg-green-50 text-green-600";
+                                                            IconComponent = Activity;
+                                                        } else if (key === 'testing_strategy') {
+                                                            styleClass = "border-teal-100";
+                                                            iconColor = "bg-teal-50 text-teal-600";
+                                                            IconComponent = CheckCircle;
+                                                        }
 
-                                                    <div className="bg-white p-6 rounded-2xl border border-teal-100 shadow-sm hover:shadow-md transition-shadow">
-                                                        <div className="flex items-center gap-3 mb-4 pb-3 border-b border-gray-100">
-                                                            <div className="p-2 bg-teal-50 rounded-lg text-teal-600">
-                                                                <CheckCircle size={24} />
+                                                        if (editingDocKey === key) {
+                                                            return (
+                                                                <div key={key} className="col-span-1">
+                                                                    <MarkdownEditor
+                                                                        label={title}
+                                                                        initialValue={content}
+                                                                        onSave={(val) => handleSaveDoc(key, val)}
+                                                                        onCancel={() => setEditingDocKey(null)}
+                                                                    />
+                                                                </div>
+                                                            );
+                                                        }
+
+                                                        return (
+                                                            <div key={key} className={`bg-white p-6 rounded-2xl border shadow-sm hover:shadow-md transition-shadow ${styleClass} group relative`}>
+                                                                {/* Edit Controls */}
+                                                                <div className="absolute top-4 right-4 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-white/90 backdrop-blur-sm rounded-lg border border-gray-100 shadow-sm p-1">
+                                                                    <button
+                                                                        onClick={() => setEditingDocKey(key)}
+                                                                        className="p-1.5 text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors"
+                                                                        title="Editar Bloco"
+                                                                    >
+                                                                        <Pencil size={14} />
+                                                                    </button>
+                                                                    <div className="w-px h-4 bg-gray-200" />
+                                                                    <button
+                                                                        onClick={() => handleDeleteDoc(key)}
+                                                                        className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
+                                                                        title="Remover Bloco"
+                                                                    >
+                                                                        <Trash2 size={14} />
+                                                                    </button>
+                                                                </div>
+
+                                                                <div className="flex items-center gap-3 mb-4 pb-3 border-b border-gray-100">
+                                                                    <div className={`p-2 rounded-lg ${iconColor}`}>
+                                                                        <IconComponent size={24} />
+                                                                    </div>
+                                                                    <h4 className="text-lg font-bold text-gray-900">{title}</h4>
+                                                                </div>
+                                                                <MarkdownRenderer content={content} className="text-sm" />
                                                             </div>
-                                                            <h4 className="text-lg font-bold text-gray-900">Estratégia de QA & Testes</h4>
-                                                        </div>
-                                                        <MarkdownRenderer content={activeProject.documentation.testing_strategy} className="text-sm" />
-                                                    </div>
+                                                        );
+                                                    })}
                                                 </div>
                                             </div>
                                         ) : (
@@ -1485,17 +1559,44 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
                                         {(activeProject?.technicalPremises || activeProject?.clientResponsibilities || activeProject?.raciMatrix) ? (
                                             <div className="space-y-8 max-w-5xl mx-auto">
                                                 {/* TECH PREMISES */}
+                                                {/* TECH PREMISES */}
                                                 {activeProject.technicalPremises && activeProject.technicalPremises.length > 0 && (
-                                                    <section>
-                                                        <h4 className="font-bold text-gray-900 mb-3 text-lg">Premissas Técnicas</h4>
-                                                        <ul className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                                            {activeProject.technicalPremises.map((premise, idx) => (
-                                                                <li key={idx} className="bg-amber-50 text-amber-900 p-3 rounded-lg border border-amber-100 flex items-start gap-2 text-sm">
-                                                                    <div className="mt-1 min-w-[6px] h-1.5 rounded-full bg-amber-400" />
-                                                                    {premise}
-                                                                </li>
-                                                            ))}
-                                                        </ul>
+                                                    <section className="relative group -mx-2 p-2 rounded-xl transition-colors hover:bg-gray-50/80">
+                                                        {editingPremises ? (
+                                                            <div className="bg-white rounded-xl shadow-lg ring-1 ring-black/5 p-1">
+                                                                <MarkdownEditor
+                                                                    label="Editando Premissas Técnicas"
+                                                                    initialValue={activeProject.technicalPremises.map(p => `- ${p}`).join('\n')}
+                                                                    onSave={handleSavePremises}
+                                                                    onCancel={() => setEditingPremises(false)}
+                                                                />
+                                                            </div>
+                                                        ) : (
+                                                            <>
+                                                                <div className="flex items-center justify-between mb-3">
+                                                                    <h4 className="font-bold text-gray-900 text-lg flex items-center gap-2">
+                                                                        Premissas Técnicas
+                                                                    </h4>
+                                                                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                        <button
+                                                                            onClick={() => setEditingPremises(true)}
+                                                                            className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                                                                            title="Editar Premissas"
+                                                                        >
+                                                                            <Pencil size={16} />
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                                <ul className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                                    {activeProject.technicalPremises.map((premise, idx) => (
+                                                                        <li key={idx} className="bg-amber-50 text-amber-900 p-3 rounded-lg border border-amber-100 flex items-start gap-2 text-sm">
+                                                                            <div className="mt-1 min-w-[6px] h-1.5 rounded-full bg-amber-400" />
+                                                                            {premise}
+                                                                        </li>
+                                                                    ))}
+                                                                </ul>
+                                                            </>
+                                                        )}
                                                     </section>
                                                 )}
 

@@ -655,6 +655,7 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                             text.setAttribute('text-anchor', 'middle');
                             text.setAttribute('fill', '#ef4444');
                             text.setAttribute('font-weight', 'bold');
+                            text.setAttribute('font-size', '10px'); // Explicit font size fix
                             rulerGroup.appendChild(text);
                         }
 

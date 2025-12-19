@@ -106,33 +106,43 @@ const EstimateView = ({ estimate, onApply, isApplying }: { estimate: EstimateRes
                     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300 text-sm h-[350px] overflow-y-auto custom-scrollbar pr-2">
                         {estimate.documentation ? (
                             <div className="space-y-4">
-                                <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-100">
-                                    <h4 className="font-bold text-indigo-900 mb-2 flex items-center gap-2">
-                                        <Target size={16} className="text-indigo-600" />Contexto Geral
-                                    </h4>
-                                    <MarkdownRenderer content={estimate.documentation.context_overview} className="text-xs" />
-                                </div>
+                                {Object.entries(estimate.documentation).map(([key, content], index) => {
+                                    // Helper to format title (e.g. 'context_overview' -> 'Context Overview')
+                                    const title = key.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
 
-                                <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100">
-                                    <h4 className="font-bold text-blue-900 mb-2 mt-2 flex items-center gap-2">
-                                        <FileText size={16} className="text-blue-600" />Solução Técnica
-                                    </h4>
-                                    <MarkdownRenderer content={estimate.documentation.technical_solution} className="text-xs" />
-                                </div>
+                                    // Dynamic styling based on key or default
+                                    let styleClass = "bg-gray-50/50 border-gray-100 text-gray-900";
+                                    let iconColor = "text-gray-600";
+                                    let IconComponent = FileText;
 
-                                <div className="bg-green-50/50 p-4 rounded-xl border border-green-100">
-                                    <h4 className="font-bold text-green-900 mb-2 mt-2 flex items-center gap-2">
-                                        <LayoutDashboard size={16} className="text-green-600" />Estratégia de Implementação
-                                    </h4>
-                                    <MarkdownRenderer content={estimate.documentation.implementation_steps} className="text-xs" />
-                                </div>
+                                    if (key === 'context_overview') {
+                                        styleClass = "bg-indigo-50/50 border-indigo-100 text-indigo-900";
+                                        iconColor = "text-indigo-600";
+                                        IconComponent = Target;
+                                    } else if (key === 'technical_solution') {
+                                        styleClass = "bg-blue-50/50 border-blue-100 text-blue-900";
+                                        iconColor = "text-blue-600";
+                                        IconComponent = FileText;
+                                    } else if (key === 'implementation_steps') {
+                                        styleClass = "bg-green-50/50 border-green-100 text-green-900";
+                                        iconColor = "text-green-600";
+                                        IconComponent = LayoutDashboard;
+                                    } else if (key === 'testing_strategy') {
+                                        styleClass = "bg-teal-50/50 border-teal-100 text-teal-900";
+                                        iconColor = "text-teal-600";
+                                        IconComponent = CheckSquare;
+                                    }
 
-                                <div className="bg-teal-50/50 p-4 rounded-xl border border-teal-100">
-                                    <h4 className="font-bold text-teal-900 mb-2 mt-2 flex items-center gap-2">
-                                        <CheckSquare size={16} className="text-teal-600" />Plano de Testes
-                                    </h4>
-                                    <MarkdownRenderer content={estimate.documentation.testing_strategy} className="text-xs" />
-                                </div>
+                                    return (
+                                        <div key={key} className={`${styleClass} p-4 rounded-xl border`}>
+                                            <h4 className={`font-bold mb-2 flex items-center gap-2 capitalize`}>
+                                                <IconComponent size={16} className={iconColor} />
+                                                {title}
+                                            </h4>
+                                            <MarkdownRenderer content={content} className="text-xs" />
+                                        </div>
+                                    );
+                                })}
                             </div>
                         ) : (
                             <div className="text-center py-10 text-gray-500 italic">
@@ -292,6 +302,7 @@ export const EstimateModal = ({ isOpen, onClose, onApplyEstimate, user, clientCo
                 reader.readAsDataURL(file);
             })));
             setPendingFiles(prev => [...prev, ...processed]);
+            e.target.value = ''; // Reset input to allow re-selecting the same file
         }
     };
 
@@ -407,8 +418,8 @@ export const EstimateModal = ({ isOpen, onClose, onApplyEstimate, user, clientCo
         setError(null);
 
         try {
-            // First interaction triggers refinement if not already refining
-            if (!isRefining && messages.length <= 1) {
+            // First interaction triggers refinement if not already refining, OR if we want to force start
+            if (!isRefining) {
                 setIsRefining(true);
                 setProjectContext(input);
 
@@ -469,13 +480,36 @@ export const EstimateModal = ({ isOpen, onClose, onApplyEstimate, user, clientCo
 
         return (
             <div className="bg-white border border-indigo-100 rounded-xl shadow-lg p-6 mb-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                <div className="flex items-center gap-2 mb-4 text-indigo-800">
+                <div className="flex items-center gap-2 mb-2 text-indigo-800">
                     <div className="bg-indigo-100 p-2 rounded-lg">
                         <Wand2 size={20} className="text-indigo-600" />
                     </div>
                     <div>
                         <h3 className="font-bold text-lg">Refinamento de Escopo</h3>
                         <p className="text-xs text-indigo-600 max-w-xl">{refinementData.thought_process}</p>
+                    </div>
+                </div>
+
+                {/* Confidence Meter */}
+                <div className="mb-6 bg-gray-50 border border-gray-100 p-3 rounded-xl flex items-center gap-4">
+                    <div className="flex-1">
+                        <div className="flex justify-between text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1">
+                            <span>Confiabilidade da Estimativa Atual</span>
+                            <span className={`${refinementData.current_confidence_score >= 80 ? 'text-green-600' : refinementData.current_confidence_score >= 50 ? 'text-amber-600' : 'text-red-500'}`}>
+                                {refinementData.current_confidence_score || 0}%
+                            </span>
+                        </div>
+                        <div className="h-2 w-full bg-gray-200 rounded-full overflow-hidden">
+                            <div
+                                className={`h-full transition-all duration-500 rounded-full ${refinementData.current_confidence_score >= 80 ? 'bg-green-500' : refinementData.current_confidence_score >= 50 ? 'bg-amber-500' : 'bg-red-500'}`}
+                                style={{ width: `${refinementData.current_confidence_score || 0}%` }}
+                            />
+                        </div>
+                    </div>
+                    <div className="text-xs text-gray-400 max-w-[200px] leading-tight hidden sm:block">
+                        {refinementData.current_confidence_score >= 80
+                            ? "Nível ótimo. Podemos gerar o plano final."
+                            : "Ainda há incertezas. Recomenda-se mais uma rodada."}
                     </div>
                 </div>
 
@@ -527,20 +561,21 @@ export const EstimateModal = ({ isOpen, onClose, onApplyEstimate, user, clientCo
                 <div className="flex gap-3 mt-6 pt-4 border-t border-gray-100 sticky bottom-0 bg-white z-10">
                     <button
                         onClick={() => handleRefinementSubmit(false)}
-                        disabled={Object.keys(currentAnswers).length < refinementData.questions.length}
+                        disabled={Object.keys(currentAnswers).length < refinementData.questions.length || isLoading}
                         className="flex-1 py-3 px-4 bg-white border-2 border-indigo-600 text-indigo-700 font-bold rounded-xl hover:bg-indigo-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                     >
-                        <span>Continuar Refinando</span>
-                        <ArrowRight size={16} />
+                        {isLoading ? <Loader2 size={16} className="animate-spin" /> : null}
+                        <span>{isLoading ? 'Processando...' : 'Responder e Próxima Rodada'}</span>
+                        {!isLoading && <ArrowRight size={16} />}
                     </button>
 
                     <button
                         onClick={() => handleRefinementSubmit(true)}
-                        disabled={Object.keys(currentAnswers).length < refinementData.questions.length}
+                        disabled={Object.keys(currentAnswers).length < refinementData.questions.length || isLoading}
                         className="flex-1 py-3 px-4 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-indigo-200 flex items-center justify-center gap-2"
                     >
-                        <Sparkles size={16} />
-                        <span>Gerar Plano Agora</span>
+                        {isLoading ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+                        <span>{isLoading ? 'Gerando...' : 'Gerar Plano Agora'}</span>
                     </button>
                 </div>
             </div>

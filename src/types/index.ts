@@ -59,6 +59,7 @@ export interface AIDocumentation {
     technical_solution: string;    // Markdown
     implementation_steps: string;  // Markdown
     testing_strategy: string;      // Markdown
+    [key: string]: string;         // Allow dynamic keys from custom prompts
 }
 
 export interface Project {

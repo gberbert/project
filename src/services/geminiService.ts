@@ -29,6 +29,7 @@ export interface RefinementResponse {
     thought_process: string;
     questions: InterviewQuestion[];
     current_context_summary: string;
+    current_confidence_score: number; // 0 to 100 percentage
 }
 
 export interface EstimateResult {
@@ -63,7 +64,7 @@ const INTERVIEWER_SYSTEM_INSTRUCTION = `
 Você é um Auditor Sênior de Projetos de TI e Arquiteto de Soluções. Sua função NÃO é estimar ainda, mas sim INVESTIGAR e REFINAR o escopo através de um interrogatório técnico estruturado.
 
 OBJETIVO:
-Criar um formulário JSON de perguntas para extrair detalhes cruciais do projeto.
+Criar um formulário JSON de perguntas para extrair detalhes cruciais do projeto e fornecer uma pontuação de confiança na estimativa atual.
 
 REGRAS GERAIS:
 1. Sempre gere EXATAMENTE 10 perguntas por rodada.
@@ -82,10 +83,17 @@ Se esta for a primeira interação, as 4 primeiras perguntas SÃO OBRIGATÓRIAS 
 RODADAS SUBSEQUENTES:
 Baseado nas respostas anteriores, aprofunde em áreas de risco (segurança, escalabilidade, migração de dados, UX, etc.).
 
+AVALIAÇÃO DE CONFIANÇA:
+Em cada rodada, avalie de 0 a 100 o quanto você se sente seguro para dar uma estimativa precisa baseada APENAS no que sabe até agora.
+- < 50%: Escopo vago, alto risco.
+- 50-80%: Temos o básico, mas faltam detalhes de integrações/regras.
+- > 80%: Escopo bem fechado.
+
 FORMATO DE RESPOSTA (JSON APENAS):
 {
   "thought_process": "Breve análise do que falta descobrir",
   "current_context_summary": "Resumo técnico de 1 frase do que já sabemos",
+  "current_confidence_score": 45,
   "questions": [
     {
       "id": "q1",
@@ -97,7 +105,9 @@ FORMATO DE RESPOSTA (JSON APENAS):
 }
 `;
 
-const SYSTEM_INSTRUCTION = `
+// --- STRUCTURAL PARTS OF SYSTEM PROMPT (FIXED) ---
+
+const PROMPT_IDENTITY_AND_RULES = `
 Você é o "Assistente UERJ-FAF", uma IA Especialista em Gerenciamento de Projetos e Engenharia.
 
 OBJETIVO:
@@ -125,26 +135,16 @@ DIRETRIZES DE LÓGICA SDLC (CRÍTICO - MODELO CASCATA/WATERFALL RÍGIDO):
    - Todas as estimativas de 'duration_days' e 'start_offset_days' DEVEM ser em **DIAS ÚTEIS**.
    - Ignore finais de semana. 5 dias = 1 semana de trabalho.
    - Seja realista: Ninguém codifica 8h/dia sem parar. Inclua buffer.
+`;
 
-PROTOCOLO DE INTERAÇÃO E GERAÇÃO DE CONTEÚDO (RIGOROSO):
-
-1. **ANÁLISE E CONTEXTO ("documentation")**:
-   - Gere textos ricos, em formato Markdown, vendendo a solução.
-   - **context_overview**: Visão executiva. Por que fazer? Qual o valor?
-   - **technical_solution**: Descreva a stack (React, Node, AWS, etc) e a arquitetura. Justifique as escolhas.
-   - **implementation_steps**: Detalhe o que será entregue em cada grande bloco (ex: "No Módulo 1, faremos X").
-   - **testing_strategy**: Como garantiremos qualidade? (Unitários, E2E, UAT).
-
-2. **PREMISSAS E RESPONSABILIDADES ("strategic_planning")**:
-   - **technical_premises**: Lista de requisitos prévios (ex: "Acesso VPN concedido", "Token da API X").
-   - **client_responsibilities**: Gere uma tabela de prazos para o cliente. Onde ele pode bloquear a gente? (ex: "Aprovar Designs até dia 5"). Classifique o Impacto.
-   - **raci_matrix**: Defina quem faz o que. Suggested Roles: Project Manager, Lead Dev, Client Sponsor, Client IT.
-
+const PROMPT_JSON_OUTPUT_FORMAT = `
 3. **CLARIFICAÇÃO**:
    - Se o escopo for muito vago, gere JSON do tipo "clarification" primeiro.
 
-4. **SAÍDA JSON**:
+4. **SAÍDA JSON (EXTENSIVA)**:
    - Retorne APENAS o JSON válido.
+   - **IMPORTANTE**: No objeto "documentation", você DEVE incluir QUAISQUER NOVOS CAMPOS solicitados nas regras de contexto (ex: "scope", "risks", "budget").
+   - Não se limite aos campos do exemplo abaixo. O exemplo é ilustrativo, mas a estrutura é flexível.
 
 Exemplo de Saída (Estimativa Completa):
 \`\`\`json
@@ -156,7 +156,8 @@ Exemplo de Saída (Estimativa Completa):
     "context_overview": "### Visão Geral\\nEste projeto visa modernizar...",
     "technical_solution": "### Arquitetura\\nUtilizaremos Microserviços...",
     "implementation_steps": "- **Fase 1**: Core...\\n- **Fase 2**: Relatórios...",
-    "testing_strategy": "Testes automatizados com Jest..."
+    "testing_strategy": "Testes automatizados com Jest...",
+    "scope": "### Escopo Detalhado\\n- **Entregáveis**: 1 Web App, 1 API...\\n- **Testes**: 2 Rodadas..."
   },
   "strategic_planning": {
     "technical_premises": ["Disponibilidade de ambiente Staging", "Chaves de API do Gateway"],
@@ -174,6 +175,30 @@ Exemplo de Saída (Estimativa Completa):
 \`\`\`
 `;
 
+// --- EDITABLE PART (DEFAULT) ---
+
+export const DEFAULT_CONTEXT_RULES = `1. **ANÁLISE E CONTEXTO ("documentation")**:
+   - Gere textos ricos, em formato Markdown, vendendo a solução.
+   - **context_overview**: Visão executiva. Por que fazer? Qual o valor?
+   - **technical_solution**: Descreva a stack (React, Node, AWS, etc) e a arquitetura. Justifique as escolhas.
+   - **implementation_steps**: Detalhe o que será entregue em cada grande bloco (ex: "No Módulo 1, faremos X").
+   - **testing_strategy**: Como garantiremos qualidade? (Unitários, E2E, UAT).
+
+2. **PREMISSAS E RESPONSABILIDADES ("strategic_planning")**:
+   - **technical_premises**: Lista de requisitos prévios (ex: "Acesso VPN concedido", "Chaves de API do Gateway").
+   - **client_responsibilities**: Gere uma tabela de prazos para o cliente. Onde ele pode bloquear a gente? (ex: "Aprovar Designs até dia 5"). Classifique o Impacto.
+   - **raci_matrix**: Defina quem faz o que. Suggested Roles: Project Manager, Lead Dev, Client Sponsor, Client IT.`;
+
+export const buildSystemInstruction = (customRules?: string) => {
+    return `${PROMPT_IDENTITY_AND_RULES}
+
+PROTOCOLO DE INTERAÇÃO E GERAÇÃO DE CONTEÚDO (RIGOROSO):
+
+${customRules || DEFAULT_CONTEXT_RULES}
+
+${PROMPT_JSON_OUTPUT_FORMAT}`;
+};
+
 export class GeminiService {
     private genAI: GoogleGenerativeAI | null = null;
     private model: GenerativeModel | null = null;
@@ -188,9 +213,13 @@ export class GeminiService {
 
     public initialize(apiKey: string) {
         this.genAI = new GoogleGenerativeAI(apiKey);
+
+        // Load custom generation rules from localStorage or use default
+        const customRules = localStorage.getItem('GEMINI_CUSTOM_CONTEXT_RULES');
+
         this.model = this.genAI.getGenerativeModel({
             model: "gemini-2.5-flash", // User requested specific model
-            systemInstruction: SYSTEM_INSTRUCTION,
+            systemInstruction: buildSystemInstruction(customRules || undefined),
             generationConfig: {
                 temperature: 0.7, // Creative enough for scenarios, precise enough for JSON
             }
