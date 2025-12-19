@@ -724,15 +724,22 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
             }
         };
 
+        let debounceTimer: ReturnType<typeof setTimeout>;
+
         observer = new MutationObserver((mutations) => {
             const relevantMutation = mutations.some(m =>
                 m.type === 'childList' ||
                 (m.type === 'attributes' && m.attributeName !== 'style' && m.attributeName !== 'class')
             );
-            if (relevantMutation) applyStyles();
+
+            if (relevantMutation) {
+                clearTimeout(debounceTimer);
+                debounceTimer = setTimeout(applyStyles, 100);
+            }
         });
 
-        // Run immediately and on mutation
+        // Run immediately (initial) and on mutation
+        // Initial run also slightly delayed to let React settle
         const timer = setTimeout(applyStyles, 200);
         observer.observe(container, { childList: true, subtree: true, attributes: true });
 
@@ -790,13 +797,28 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
             };
         });
 
-        // Add Dummy Task to extend view 5 years forward (Always)
+        // Add Dummy Task to extend view
+        // In Day view, we MUST NOT extend 5 years or it crashes the DOM (thousands of columns)
+        // In Year/Month view, 5 years is fine.
         const targetYear = today.getFullYear() + 5;
+        let dummyEnd = new Date(`${targetYear}-12-31`);
+
+        if (view === ViewMode.Day) {
+            // For Day view, find max task end date and add a small buffer (e.g. 2 months)
+            // Just enough to allow scrolling a bit into future, but not years.
+            const maxTaskEnd = tasks.length > 0
+                ? tasks.reduce((max, t) => t.end > max ? t.end : max, new Date())
+                : new Date();
+
+            dummyEnd = new Date(maxTaskEnd);
+            dummyEnd.setDate(dummyEnd.getDate() + 60); // +60 days buffer
+        }
+
         mappedTasks.push({
-            start: new Date(`${targetYear}-01-01`),
-            end: new Date(`${targetYear}-12-31`),
+            start: dummyEnd, // Start = End to be invisible/point
+            end: dummyEnd,
             name: "",
-            id: `dummy-extender-${targetYear}`,
+            id: `dummy-extender-${dummyEnd.getTime()}`,
             type: 'task',
             progress: 0,
             isDisabled: true,
