@@ -91,6 +91,7 @@ export interface Project {
     technicalPremises?: string[];
     clientResponsibilities?: ClientResponsibility[];
     raciMatrix?: RaciItem[];
+    teamStructure?: ProjectTeamMember[];
 }
 
 // Helper for UI view

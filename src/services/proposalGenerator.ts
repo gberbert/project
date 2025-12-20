@@ -13,6 +13,7 @@ interface OverlayText {
     color: string;
     bold?: boolean;
     width?: number;
+    height?: number;
 }
 
 interface SlideConfig {
@@ -335,6 +336,29 @@ export const generateProposalPpt = async (project: Project, options: GenerationO
             slideRaci.addTable(tableData, { x: 0.5, y: 1.2, w: 9, fontSize: 10, border: { pt: 1, color: 'DDDDDD' }, autoPage: true, rowH: 0.4 });
         }
 
+        // --- Team Structure ---
+        if (project.teamStructure && project.teamStructure.length > 0) {
+            const slideTeam = addBrandedSlide("Estrutura de Equipe Sugerida");
+            const tableData: any[][] = [[
+                { text: "Papel / Especialista", options: { bold: true, fill: COLOR_SECONDARY, color: 'FFFFFF' } },
+                { text: "Qtd", options: { bold: true, fill: COLOR_SECONDARY, color: 'FFFFFF', align: 'center' } },
+                { text: "Responsabilidades Chave", options: { bold: true, fill: COLOR_SECONDARY, color: 'FFFFFF' } }
+            ]];
+            project.teamStructure.forEach(member => {
+                tableData.push([
+                    { text: member.role, options: { fontSize: 10, bold: true, fill: 'F3F4F6', color: COLOR_PRIMARY } },
+                    { text: member.quantity.toString(), options: { fontSize: 10, align: 'center' } },
+                    { text: member.responsibilities.join(", "), options: { fontSize: 10 } }
+                ]);
+            });
+            slideTeam.addTable(tableData, { x: 0.5, y: 1.2, w: 9, fontSize: 10, border: { pt: 1, color: 'DDDDDD' }, rowH: 0.5, autoPage: true });
+
+            // Add concise resource cost note
+            slideTeam.addText("Nota: A alocação considera dedicação variável conforme a fase do projeto. O dimensionamento final pode ser ajustado na etapa de contrato.", {
+                x: 0.5, y: 5.2, w: 9, h: 0.3, fontSize: 9, color: '666666', italic: true
+            });
+        }
+
         // --- Client Responsibilities ---
         if (project.clientResponsibilities && project.clientResponsibilities.length > 0) {
             const slideResp = addBrandedSlide("Responsabilidades do Cliente");
@@ -522,10 +546,8 @@ export const generateProposalPpt = async (project: Project, options: GenerationO
                     }
                 });
 
-                // --- Billing Proposal Section (120 Days Limit) ---
+                // --- Billing Proposal Section ---
                 const BILLING_START_Y = ROW_START_Y + (phases.length * ROW_HEIGHT) + 0.4;
-                const LIMIT_DATE = new Date(minDate);
-                LIMIT_DATE.setDate(LIMIT_DATE.getDate() + 120);
 
                 slideRoadmap.addText("Proposta de Faturamento (Marcos de Entrega)", {
                     x: CHART_START_X, y: BILLING_START_Y, w: 5.0, h: 0.3,
@@ -536,30 +558,37 @@ export const generateProposalPpt = async (project: Project, options: GenerationO
                 const T_Y = BILLING_START_Y + 0.35;
                 slideRoadmap.addShape(pptx.ShapeType.rect, { x: CHART_START_X, y: T_Y, w: 4.8, h: 0.25, fill: { color: 'E5E7EB' } });
                 slideRoadmap.addText("Marco", { x: CHART_START_X + 0.1, y: T_Y, w: 2.3, h: 0.25, fontSize: 8, bold: true, color: '374151' });
-                slideRoadmap.addText("Data (Limite 120d)", { x: CHART_START_X + 2.4, y: T_Y, w: 1.5, h: 0.25, fontSize: 8, bold: true, color: '374151' });
+                slideRoadmap.addText("Data Estimada", { x: CHART_START_X + 2.4, y: T_Y, w: 1.5, h: 0.25, fontSize: 8, bold: true, color: '374151' });
                 slideRoadmap.addText("% Fat.", { x: CHART_START_X + 3.9, y: T_Y, w: 0.9, h: 0.25, fontSize: 8, bold: true, color: '374151', align: 'center' });
 
                 // Table Rows
                 let currentY = T_Y + 0.25;
-                const share = Math.floor(100 / phases.length);
+
+                // Distribuição de Faturamento Sob Medida (10/25/45/20) para 4 fases
+                let shares: number[] = [];
+                if (phases.length === 4) {
+                    shares = [10, 25, 45, 20];
+                } else {
+                    // Fallback: Equal share
+                    const baseShare = Math.floor(100 / phases.length);
+                    shares = Array(phases.length).fill(baseShare);
+                    // Adjust last one to sum to 100
+                    const sum = shares.reduce((a, b) => a + b, 0);
+                    if (sum < 100) shares[shares.length - 1] += (100 - sum);
+                }
 
                 phases.forEach((phase, i) => {
                     let pEnd = new Date(phase.end);
-                    const isCapped = pEnd > LIMIT_DATE;
-                    if (isCapped) pEnd = LIMIT_DATE;
-
                     const dateStr = pEnd.toLocaleDateString('pt-BR');
-                    const isLast = i === phases.length - 1;
-                    const percent = isLast ? (100 - (share * (phases.length - 1))) : share;
-                    const note = isCapped ? "*" : "";
+                    const percent = shares[i] || 0;
 
                     slideRoadmap.addShape(pptx.ShapeType.line, { x: CHART_START_X, y: currentY + 0.25, w: 4.8, h: 0, line: { color: 'D1D5DB' } });
 
                     slideRoadmap.addText(`${i + 1}. ${phase.name}`, {
                         x: CHART_START_X + 0.1, y: currentY, w: 2.3, h: 0.25, fontSize: 8, color: '4B5563'
                     });
-                    slideRoadmap.addText(dateStr + note, {
-                        x: CHART_START_X + 2.4, y: currentY, w: 1.5, h: 0.25, fontSize: 8, color: isCapped ? 'DC2626' : '4B5563', bold: isCapped
+                    slideRoadmap.addText(dateStr, {
+                        x: CHART_START_X + 2.4, y: currentY, w: 1.5, h: 0.25, fontSize: 8, color: '4B5563'
                     });
                     slideRoadmap.addText(`${percent}%`, {
                         x: CHART_START_X + 3.9, y: currentY, w: 0.9, h: 0.25, fontSize: 8, color: '4B5563', align: 'center'
@@ -629,6 +658,7 @@ export const generateProposalPpt = async (project: Project, options: GenerationO
                                 s.addText(textItems, {
                                     x: ol.x, y: ol.y,
                                     w: ol.width && ol.width > 0 ? ol.width : undefined,
+                                    h: ol.height && ol.height > 0 ? ol.height : undefined,
                                     color: ol.color,
                                     fontFace: 'Arial',
                                     wrap: !!(ol.width && ol.width > 0)

@@ -22,6 +22,7 @@ interface OverlayText {
     color: string; // hex
     bold?: boolean;
     width?: number; // inches
+    height?: number; // inches
 }
 
 interface SlideConfig {
@@ -279,6 +280,7 @@ const SlideOverlayEditor = ({ slide, preview, branding, logoPreview, onClose, on
                                         color: `#${ol.color}`,
                                         fontWeight: ol.bold ? 'bold' : 'normal',
                                         width: ol.width ? `${(ol.width / 10) * 100}%` : 'auto',
+                                        height: ol.height ? `${(ol.height / 5.625) * 100}%` : 'auto',
                                         whiteSpace: ol.width ? 'normal' : 'nowrap',
                                         wordWrap: 'break-word',
                                         lineHeight: '1.2'
@@ -450,7 +452,7 @@ const SlideOverlayEditor = ({ slide, preview, branding, logoPreview, onClose, on
                                     <p className="text-[10px] text-gray-400 mt-1">Variáveis serão preenchidas ao gerar o PPT.</p>
                                 </div>
 
-                                <div className="grid grid-cols-3 gap-2">
+                                <div className="grid grid-cols-2 gap-2">
                                     <div className="space-y-1">
                                         <label className="text-xs font-medium text-gray-500">X (pol)</label>
                                         <input
@@ -475,6 +477,16 @@ const SlideOverlayEditor = ({ slide, preview, branding, logoPreview, onClose, on
                                             type="number" step="0.1"
                                             value={selected.width && selected.width > 0 ? selected.width : ''}
                                             onChange={e => handleUpdate(selected.id, { width: parseFloat(e.target.value) || 0 })}
+                                            className="w-full px-2 py-2 border rounded-lg text-sm"
+                                            placeholder="Auto"
+                                        />
+                                    </div>
+                                    <div className="space-y-1">
+                                        <label className="text-xs font-medium text-gray-500">H (pol)</label>
+                                        <input
+                                            type="number" step="0.1"
+                                            value={selected.height && selected.height > 0 ? selected.height : ''}
+                                            onChange={e => handleUpdate(selected.id, { height: parseFloat(e.target.value) || 0 })}
                                             className="w-full px-2 py-2 border rounded-lg text-sm"
                                             placeholder="Auto"
                                         />

@@ -17,7 +17,7 @@ import { useProjectLogic } from './hooks/useProjectLogic';
 import { isAfter, isWeekend, addDays, differenceInDays, addBusinessDays } from 'date-fns';
 
 import { Task, Resource, Project } from './types';
-import { Database, CloudOff, Menu, Sparkles, CheckCircle, Activity, Lock, LogOut, ChevronDown, FileText, CheckSquare, Target, Pencil, Trash2 } from 'lucide-react';
+import { Database, CloudOff, Menu, Sparkles, CheckCircle, Activity, Lock, LogOut, ChevronDown, FileText, CheckSquare, Target, Pencil, Trash2, Users } from 'lucide-react';
 import { ProjectService, getNextWorkingDay } from './services/projectService';
 import { StabilizationModal } from './components/StabilizationModal';
 import { useAuth } from './contexts/AuthContext';
@@ -1052,6 +1052,7 @@ function App() {
                 technicalPremises: estimate.strategic_planning?.technical_premises,
                 clientResponsibilities: estimate.strategic_planning?.client_responsibilities,
                 raciMatrix: estimate.strategic_planning?.raci_matrix,
+                teamStructure: estimate.team_structure, // Persist Team Structure
             };
             if (isConnected) {
                 await ProjectService.updateProject(selectedProjectId, updates);
@@ -1506,6 +1507,48 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
                                                         Visão estratégica, arquitetura técnica e plano de qualidade definidos pela Inteligência Artificial.
                                                     </p>
                                                 </div>
+
+                                                {/* Team Structure Section */}
+                                                {activeProject.teamStructure && activeProject.teamStructure.length > 0 && (
+                                                    <div className="bg-white p-6 rounded-2xl border border-indigo-100 shadow-sm">
+                                                        <div className="flex items-center gap-3 mb-4 pb-3 border-b border-gray-100">
+                                                            <div className="p-2 rounded-lg bg-indigo-50 text-indigo-600">
+                                                                <Users size={24} />
+                                                            </div>
+                                                            <h4 className="text-lg font-bold text-gray-900">Estrutura de Equipe Sugerida</h4>
+                                                        </div>
+                                                        <div className="overflow-hidden rounded-lg border border-gray-200">
+                                                            <table className="min-w-full divide-y divide-gray-200">
+                                                                <thead className="bg-gray-50">
+                                                                    <tr>
+                                                                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Profissional / Papel</th>
+                                                                        <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Qtd</th>
+                                                                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Responsabilidades Chave</th>
+                                                                    </tr>
+                                                                </thead>
+                                                                <tbody className="bg-white divide-y divide-gray-200">
+                                                                    {activeProject.teamStructure.map((member, i) => (
+                                                                        <tr key={i}>
+                                                                            <td className="px-4 py-3 text-sm font-medium text-indigo-900">{member.role}</td>
+                                                                            <td className="px-4 py-3 text-sm text-center text-gray-600">
+                                                                                <span className="inline-flex items-center justify-center w-6 h-6 bg-gray-100 rounded-full font-bold text-xs">{member.quantity}</span>
+                                                                            </td>
+                                                                            <td className="px-4 py-3 text-sm text-gray-600">
+                                                                                <div className="flex flex-wrap gap-1">
+                                                                                    {member.responsibilities.map((resp, j) => (
+                                                                                        <span key={j} className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700">
+                                                                                            {resp}
+                                                                                        </span>
+                                                                                    ))}
+                                                                                </div>
+                                                                            </td>
+                                                                        </tr>
+                                                                    ))}
+                                                                </tbody>
+                                                            </table>
+                                                        </div>
+                                                    </div>
+                                                )}
 
                                                 {/* Dynamic Documentation Grid */}
                                                 <div className="grid grid-cols-1 gap-6">
