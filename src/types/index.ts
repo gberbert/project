@@ -53,6 +53,12 @@ export interface RaciItem {
     informed: string;
 }
 
+export interface ProjectTeamMember {
+    role: string;
+    quantity: number;
+    responsibilities: string[];
+}
+
 // Helper for AI Documentation Structure
 export interface AIDocumentation {
     context_overview: string;      // Markdown

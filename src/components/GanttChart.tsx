@@ -33,6 +33,7 @@ interface GanttChartProps {
     onReorderTasks: (newTasks: Task[], movedTaskId?: string) => void;
     isModalOpen?: boolean;
     onLandscapeModeChange?: (isLandscape: boolean) => void;
+    onViewModeChange?: (view: ViewMode) => void;
 }
 
 // Ensure TaskListTable receives the necessary props for DND
@@ -211,7 +212,7 @@ const SortableTaskRow = ({
     );
 };
 
-export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDeleteTask, onIndent, onOutdent, onReorderTasks, isModalOpen = false, onLandscapeModeChange }: GanttChartProps) => {
+export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDeleteTask, onIndent, onOutdent, onReorderTasks, isModalOpen = false, onLandscapeModeChange, onViewModeChange }: GanttChartProps) => {
     const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
     const containerRef = React.useRef<HTMLDivElement>(null);
     const scrollContainerRef = React.useRef<HTMLDivElement>(null);
@@ -298,6 +299,12 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
     // Zoom control for landscape (compact mode)
     const [isCompact, setIsCompact] = useState(false);
     const [view, setView] = useState<ViewMode>(ViewMode.Year);
+
+    // Notify parent of view mode changes
+    useEffect(() => {
+        onViewModeChange?.(view);
+    }, [view, onViewModeChange]);
+
     const [collapsedTaskIds, setCollapsedTaskIds] = useState<string[]>([]);
     const [showTaskList, setShowTaskList] = useState(true);
     const [isSuperCompact, setIsSuperCompact] = useState(false);
@@ -1132,7 +1139,7 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                 </div>
             </div>
 
-            <div ref={scrollContainerRef} className={`flex-1 overflow-x-auto overflow-y-auto bg-white w-full touch-pan-x touch-pan-y ${isMobile ? 'mobile-gantt-fix' : ''}`} style={{ WebkitOverflowScrolling: 'touch' }}>
+            <div id="gantt-chart-area" ref={scrollContainerRef} className={`flex-1 overflow-x-auto overflow-y-auto bg-white w-full touch-pan-x touch-pan-y ${isMobile ? 'mobile-gantt-fix' : ''}`} style={{ WebkitOverflowScrolling: 'touch' }}>
                 {(!tasks || tasks.length === 0) ? (
                     <div className="w-full h-full flex flex-col items-center justify-center text-gray-400 min-h-[200px]">
                         <p>No tasks to display. Click "Nova Tarefa" to start.</p>

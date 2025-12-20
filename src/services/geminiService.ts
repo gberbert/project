@@ -1,5 +1,5 @@
 import { GoogleGenerativeAI, ChatSession, GenerativeModel } from '@google/generative-ai';
-import { ClientResponsibility, RaciItem, AIDocumentation } from '../types';
+import { ClientResponsibility, RaciItem, AIDocumentation, ProjectTeamMember } from '../types';
 
 // Interface for the structured estimate response
 export interface EstimatedTask {
@@ -47,6 +47,9 @@ export interface EstimateResult {
         client_responsibilities: ClientResponsibility[];
         raci_matrix: RaciItem[];
     };
+
+    // NEW: Team Structure
+    team_structure?: ProjectTeamMember[];
 }
 
 export interface ClarificationQuestion {
@@ -67,10 +70,13 @@ OBJETIVO:
 Criar um formulário JSON de perguntas para extrair detalhes cruciais do projeto e fornecer uma pontuação de confiança na estimativa atual.
 
 REGRAS GERAIS:
-1. Sempre gere EXATAMENTE 10 perguntas por rodada.
-2. Cada pergunta DEVE ter 5 opções de múltipla escolha pré-definidas (A, B, C, D, E) cobrindo os cenários mais prováveis.
-3. Cada pergunta DEVE permitir uma resposta personalizada "Outro" (allow_custom: true).
-4. O tom deve ser profissional, técnico e investigativo.
+1. ANÁLISE DE CONTEXTO (PRIORIDADE MÁXIMA): Antes de gerar perguntas, LEIA TODO O CONTEXTO (arquivos e chat). NÃO pergunte o que já foi respondido ou está nos documentos. Seja CRITERIOSO. Perguntas redundantes diminuem a confiança.
+2. Sempre gere EXATAMENTE 10 perguntas por rodada. ISSO É MANDATÓRIO.
+3. SUGESTÃO INTELIGENTE: Nas opções de múltipla escolha, adicione a tag '[Recomendado]' ao final da opção que representa a melhor prática de mercado ou a inferência mais lógica para o setor do cliente.
+4. Cada pergunta DEVE ter 5 opções de múltipla escolha pré-definidas (A, B, C, D, E).
+5. Cada pergunta DEVE permitir uma resposta personalizada "Outro" (allow_custom: true).
+6. O tom deve ser profissional, técnico e investigativo.
+7. JAMAIS encerre a entrevista ou sugira parar. O seu objetivo é aprofundar INFINITAMENTE até que o usuário clique em "Gerar Plano". Continue cavando riscos, edge cases e detalhes.
 
 RODADA 1 (MANDATÓRIA):
 Se esta for a primeira interação, as 4 primeiras perguntas SÃO OBRIGATÓRIAS e devem seguir esta ordem exata:
@@ -83,11 +89,14 @@ Se esta for a primeira interação, as 4 primeiras perguntas SÃO OBRIGATÓRIAS 
 RODADAS SUBSEQUENTES:
 Baseado nas respostas anteriores, aprofunde em áreas de risco (segurança, escalabilidade, migração de dados, UX, etc.).
 
-AVALIAÇÃO DE CONFIANÇA:
-Em cada rodada, avalie de 0 a 100 o quanto você se sente seguro para dar uma estimativa precisa baseada APENAS no que sabe até agora.
-- < 50%: Escopo vago, alto risco.
-- 50-80%: Temos o básico, mas faltam detalhes de integrações/regras.
-- > 80%: Escopo bem fechado.
+AVALIAÇÃO DE CONFIANÇA (SEJA CÉTICO/CONSERVADOR):
+Em cada rodada, avalie de 0 a 100 quão completo é o entendimento técnico.
+REGRA DE OURO: A confiança deve crescer GRADUALMENTE (máximo +15% por rodada). Não salte de 20% para 80% magicamente.
+- < 40%: Fase de Descoberta Inicial (Apenas Stack, Infra e Ideia Geral definidos).
+- 40% - 60%: Fase de Estrutura (Integrações, Banco de Dados, Autenticação e Perfis definidos).
+- 60% - 80%: Fase de Detalhamento (Regras de Negócio complexas, Relatórios, Fluxos de Exceção cobertos).
+- > 80%: Fase de Auditoria (Volumetria, Performance, Compliance/LGPD, Segurança avançada e Edge Cases validados).
+PENALIZE severamente respostas vagas. Se o usuário responder rápido ou "A definir", MANTENHA a confiança baixa.
 
 FORMATO DE RESPOSTA (JSON APENAS):
 {
@@ -168,6 +177,10 @@ Exemplo de Saída (Estimativa Completa):
       { "activity_group": "Definição de Requisitos", "responsible": "Product Owner", "accountable": "Sponsor", "consulted": "Tech Lead", "informed": "Dev Team" }
     ]
   },
+  "team_structure": [
+      { "role": "Arquiteto de Soluções", "quantity": 1, "responsibilities": ["Definição de Cloud", "Segurança"] },
+      { "role": "Desenvolvedor Fullstack", "quantity": 2, "responsibilities": ["Frontend React", "Backend Node.js"] }
+  ],
   "tasks": [
     { "id": "t1", "name": "Kick-off", "type": "task", "category": "planning", "start_offset_days": 0, "duration_days": 1, "role": "PM", "hourly_rate": 200 }
   ]
@@ -183,8 +196,14 @@ export const DEFAULT_CONTEXT_RULES = `1. **ANÁLISE E CONTEXTO ("documentation")
    - **technical_solution**: Descreva a stack (React, Node, AWS, etc) e a arquitetura. Justifique as escolhas.
    - **implementation_steps**: Detalhe o que será entregue em cada grande bloco (ex: "No Módulo 1, faremos X").
    - **testing_strategy**: Como garantiremos qualidade? (Unitários, E2E, UAT).
+   - **scope**: Opcional. Detalhamento extra se necessário.
 
-2. **PREMISSAS E RESPONSABILIDADES ("strategic_planning")**:
+2. **ESTRUTURA DE EQUIPE ("team_structure")**:
+   - Defina a equipe ideal para executar este projeto.
+   - Liste cada papel (role), a quantidade de profissionais (quantity) e suas principais responsabilidades/habilidades (responsibilities).
+   - Seja específico (ex: "Desenvolvedor React Sênior", "Arquiteto Cloud").
+
+3. **PREMISSAS E RESPONSABILIDADES ("strategic_planning")**:
    - **technical_premises**: Lista de requisitos prévios (ex: "Acesso VPN concedido", "Chaves de API do Gateway").
    - **client_responsibilities**: Gere uma tabela de prazos para o cliente. Onde ele pode bloquear a gente? (ex: "Aprovar Designs até dia 5"). Classifique o Impacto.
    - **raci_matrix**: Defina quem faz o que. Suggested Roles: Project Manager, Lead Dev, Client Sponsor, Client IT.`;
@@ -313,7 +332,7 @@ export class GeminiService {
             currentAnswers.forEach(a => {
                 userPrompt += `- Q: ${a.questionId} | A: ${a.answer}\n`;
             });
-            userPrompt += `\nCom base nessas respostas, gere a PRÓXIMA rodada de 10 perguntas de aprofundamento ou, se já tivermos clareza total, sugira o encerramento.`;
+            userPrompt += `\nCom base nessas respostas, gere a PRÓXIMA rodada de 10 perguntas de aprofundamento. OBRIGATÓRIO: Gere 10 novas perguntas focadas em riscos não cobertos, detalhes de infra, segurança ou requisitos não funcionais.`;
         } else {
             userPrompt += `Esta é a primeira rodada. Gere as 10 perguntas iniciais (incluindo as 4 mandatórias).`;
         }

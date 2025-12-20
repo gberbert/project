@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { EstimateResult, ClarificationResult, ClarificationQuestion, geminiService, RefinementResponse, InterviewQuestion } from '../services/geminiService';
 import { MarkdownRenderer } from './MarkdownRenderer';
-import { Bot, User, Paperclip, Send, Loader2, X, AlertCircle, FileText, LayoutDashboard, CheckSquare, Target, Sparkles, Wand2, ArrowRight } from 'lucide-react';
+import { Bot, User, Paperclip, Send, Loader2, X, AlertCircle, FileText, LayoutDashboard, CheckSquare, Target, Sparkles, Wand2, ArrowRight, Users } from 'lucide-react';
 
 export interface EstimateModalProps {
     isOpen: boolean;
@@ -104,6 +104,60 @@ const EstimateView = ({ estimate, onApply, isApplying }: { estimate: EstimateRes
 
                 {activeTab === 'context' && (
                     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300 text-sm h-[350px] overflow-y-auto custom-scrollbar pr-2">
+
+                        {/* New Team Structure Section */}
+                        {estimate.team_structure && estimate.team_structure.length > 0 && (
+                            <div className="bg-white p-4 rounded-xl border border-gray-200">
+                                <h4 className="font-bold mb-4 flex items-center gap-2 text-indigo-900">
+                                    <Users size={18} className="text-indigo-600" />
+                                    Time do Projeto (Escopo Geral)
+                                </h4>
+
+                                {/* Visual Avatars */}
+                                <div className="flex flex-wrap gap-4 mb-6 justify-center sm:justify-start">
+                                    {estimate.team_structure.map((member, idx) => (
+                                        <div key={idx} className="flex items-center gap-3 bg-gray-50 px-3 py-2 rounded-lg border border-gray-100 min-w-[200px]">
+                                            <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 font-bold shrink-0">
+                                                {member.role.substring(0, 2).toUpperCase()}
+                                            </div>
+                                            <div className="text-xs">
+                                                <div className="font-bold text-gray-800">{member.role}</div>
+                                                <div className="text-gray-500">{member.quantity > 1 ? `${member.quantity} Profissionais` : '1 Profissional'}</div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                {/* Detailed Table */}
+                                <div className="overflow-hidden rounded-lg border border-gray-200 shadow-sm">
+                                    <table className="min-w-full divide-y divide-gray-200">
+                                        <thead className="bg-indigo-600 text-white">
+                                            <tr>
+                                                <th className="px-3 py-2 text-left text-xs font-bold uppercase tracking-wider">Perfil</th>
+                                                <th className="px-3 py-2 text-left text-xs font-bold uppercase tracking-wider w-16 text-center">Qtde</th>
+                                                <th className="px-3 py-2 text-left text-xs font-bold uppercase tracking-wider">Responsabilidades / Habilidades</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="bg-white divide-y divide-gray-200">
+                                            {estimate.team_structure.map((member, idx) => (
+                                                <tr key={idx} className={idx % 2 === 0 ? "bg-indigo-50/50" : "bg-white"}>
+                                                    <td className="px-3 py-2 text-gray-800 font-bold text-xs">{member.role}</td>
+                                                    <td className="px-3 py-2 text-gray-600 text-xs font-bold text-center">{member.quantity}</td>
+                                                    <td className="px-3 py-2 text-gray-600 text-xs text-justify leading-relaxed">
+                                                        <ul className="list-disc pl-4 space-y-1">
+                                                            {member.responsibilities.map((resp, rIdx) => (
+                                                                <li key={rIdx}>{resp}</li>
+                                                            ))}
+                                                        </ul>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
+
                         {estimate.documentation ? (
                             <div className="space-y-4">
                                 {Object.entries(estimate.documentation).map(([key, content], index) => {
@@ -254,7 +308,8 @@ export const EstimateModal = ({ isOpen, onClose, onApplyEstimate, user, clientCo
     const [isRefining, setIsRefining] = useState(false);
     const [refinementData, setRefinementData] = useState<RefinementResponse | null>(null);
     const [refinementAnswers, setRefinementAnswers] = useState<Record<string, string>>({}); // Accumulated answers
-    const [currentAnswers, setCurrentAnswers] = useState<Record<string, string>>({}); // Current round answers
+    const [selectedOptions, setSelectedOptions] = useState<Record<string, string>>({}); // Current round RADIO answers
+    const [customInputs, setCustomInputs] = useState<Record<string, string>>({}); // Current round TEXT answers
     const [projectContext, setProjectContext] = useState<string>("");
 
     // --- Refs ---
@@ -274,7 +329,8 @@ export const EstimateModal = ({ isOpen, onClose, onApplyEstimate, user, clientCo
             // Reset Refinement State
             setRefinementData(null);
             setRefinementAnswers({});
-            setCurrentAnswers({});
+            setSelectedOptions({});
+            setCustomInputs({});
             setIsRefining(false);
             setProjectContext("");
             setInput("");
@@ -306,8 +362,15 @@ export const EstimateModal = ({ isOpen, onClose, onApplyEstimate, user, clientCo
         }
     };
 
-    const handleAnswerChange = (questionId: string, value: string) => {
-        setCurrentAnswers(prev => ({
+    const handleOptionSelect = (questionId: string, value: string) => {
+        setSelectedOptions(prev => ({
+            ...prev,
+            [questionId]: value
+        }));
+    };
+
+    const handleCustomInputChange = (questionId: string, value: string) => {
+        setCustomInputs(prev => ({
             ...prev,
             [questionId]: value
         }));
@@ -317,16 +380,30 @@ export const EstimateModal = ({ isOpen, onClose, onApplyEstimate, user, clientCo
         if (!refinementData) return;
         setIsLoading(true);
 
-        const updatedAllAnswers = { ...refinementAnswers, ...currentAnswers };
+        // Merge selected options and custom inputs
+        const currentRoundAnswers: Record<string, string> = {};
+        refinementData.questions.forEach(q => {
+            const opt = selectedOptions[q.id];
+            const cust = customInputs[q.id];
+            if (opt && cust) {
+                currentRoundAnswers[q.id] = `${opt} [Detalhes/Complemento: ${cust}]`;
+            } else if (opt) {
+                currentRoundAnswers[q.id] = opt;
+            } else if (cust) {
+                currentRoundAnswers[q.id] = cust;
+            }
+        });
+
+        const updatedAllAnswers = { ...refinementAnswers, ...currentRoundAnswers };
         setRefinementAnswers(updatedAllAnswers);
 
-        const answersArray = Object.entries(currentAnswers).map(([qId, ans]) => ({
+        const answersArray = Object.entries(currentRoundAnswers).map(([qId, ans]) => ({
             questionId: qId,
             answer: ans
         }));
 
         // Show user answers in chat
-        const userResponseText = "**Respostas enviadas:**\n" + Object.entries(currentAnswers)
+        const userResponseText = "**Respostas enviadas:**\n" + Object.entries(currentRoundAnswers)
             .map(([qId, ans]) => {
                 const q = refinementData.questions.find(q => q.id === qId);
                 return `- **${q?.text.substring(0, 40)}${q?.text && q.text.length > 40 ? '...' : ''}**: ${ans}`;
@@ -341,6 +418,7 @@ export const EstimateModal = ({ isOpen, onClose, onApplyEstimate, user, clientCo
         try {
             if (finalize) {
                 // FINALIZE: Generate Plan
+                const finalConfidence = refinementData.current_confidence_score || 0;
                 setRefinementData(null);
                 setIsRefining(false);
 
@@ -349,6 +427,12 @@ export const EstimateModal = ({ isOpen, onClose, onApplyEstimate, user, clientCo
                 Object.entries(updatedAllAnswers).forEach(([qId, ans]) => {
                     megaContext += `[${qId}]: ${ans}\n`;
                 });
+
+                // FORCE THE SCORE
+                megaContext += `\n\n=== DIRETRIZ DE CONFIANÇA (MANDATÓRIO) ===\n`;
+                megaContext += `A auditoria técnica avaliou a confiança atual em: ${finalConfidence}%.\n`;
+                megaContext += `Você DEVE usar um valor próximo a este (entre ${Math.max(0, finalConfidence - 5)}% e ${Math.min(100, finalConfidence + 5)}%) no campo 'confidence_score' do JSON final (formato float 0.0-1.0, ex: ${(finalConfidence / 100).toFixed(2)}).\n`;
+                megaContext += `NÃO INFLACIONE A NOTA. Seja coerente com a auditoria.`;
 
                 setMessages(prev => [...prev, {
                     id: Date.now().toString() + 'gen',
@@ -385,7 +469,8 @@ export const EstimateModal = ({ isOpen, onClose, onApplyEstimate, user, clientCo
                 );
 
                 setRefinementData(nextRefinement);
-                setCurrentAnswers({});
+                setSelectedOptions({});
+                setCustomInputs({});
             }
         } catch (err: any) {
             console.error(err);
@@ -523,7 +608,7 @@ export const EstimateModal = ({ isOpen, onClose, onApplyEstimate, user, clientCo
 
                             <div className="space-y-2">
                                 {q.options.map((opt, i) => (
-                                    <label key={i} className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${currentAnswers[q.id] === opt
+                                    <label key={i} className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${selectedOptions[q.id] === opt
                                         ? 'bg-indigo-50 border-indigo-300 ring-1 ring-indigo-300'
                                         : 'bg-white border-gray-200 hover:border-indigo-200'
                                         }`}>
@@ -531,8 +616,8 @@ export const EstimateModal = ({ isOpen, onClose, onApplyEstimate, user, clientCo
                                             type="radio"
                                             name={q.id}
                                             value={opt}
-                                            checked={currentAnswers[q.id] === opt}
-                                            onChange={(e) => handleAnswerChange(q.id, e.target.value)}
+                                            checked={selectedOptions[q.id] === opt}
+                                            onChange={(e) => handleOptionSelect(q.id, e.target.value)}
                                             className="w-4 h-4 text-indigo-600 border-gray-300 focus:ring-indigo-500"
                                         />
                                         <span className="text-sm text-gray-700">{opt}</span>
@@ -543,13 +628,13 @@ export const EstimateModal = ({ isOpen, onClose, onApplyEstimate, user, clientCo
                                     <div className="mt-2 text-xs">
                                         <input
                                             type="text"
-                                            placeholder="Outra resposta (digite aqui)..."
-                                            className={`w-full text-sm p-3 rounded-lg border ${Object.values(q.options).includes(currentAnswers[q.id] || '')
-                                                ? 'bg-gray-50 border-gray-200 text-gray-500'
-                                                : currentAnswers[q.id] ? 'border-indigo-300 ring-1 ring-indigo-300 bg-white' : 'border-gray-200'
+                                            placeholder="Complemento ou Resposta Personalizada..."
+                                            className={`w-full text-sm p-3 rounded-lg border ${customInputs[q.id]
+                                                ? 'border-indigo-300 ring-1 ring-indigo-300 bg-white'
+                                                : 'bg-gray-50 border-gray-200 text-gray-700 focus:bg-white'
                                                 } focus:ring-2 focus:ring-indigo-500 outline-none transition-all`}
-                                            onChange={(e) => handleAnswerChange(q.id, e.target.value)}
-                                            value={!q.options.includes(currentAnswers[q.id] || '') ? currentAnswers[q.id] || '' : ''}
+                                            onChange={(e) => handleCustomInputChange(q.id, e.target.value)}
+                                            value={customInputs[q.id] || ''}
                                         />
                                     </div>
                                 )}
@@ -561,7 +646,7 @@ export const EstimateModal = ({ isOpen, onClose, onApplyEstimate, user, clientCo
                 <div className="flex gap-3 mt-6 pt-4 border-t border-gray-100 sticky bottom-0 bg-white z-10">
                     <button
                         onClick={() => handleRefinementSubmit(false)}
-                        disabled={Object.keys(currentAnswers).length < refinementData.questions.length || isLoading}
+                        disabled={isLoading || refinementData.questions.some(q => !selectedOptions[q.id] && !customInputs[q.id])}
                         className="flex-1 py-3 px-4 bg-white border-2 border-indigo-600 text-indigo-700 font-bold rounded-xl hover:bg-indigo-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                     >
                         {isLoading ? <Loader2 size={16} className="animate-spin" /> : null}
@@ -571,7 +656,7 @@ export const EstimateModal = ({ isOpen, onClose, onApplyEstimate, user, clientCo
 
                     <button
                         onClick={() => handleRefinementSubmit(true)}
-                        disabled={Object.keys(currentAnswers).length < refinementData.questions.length || isLoading}
+                        disabled={isLoading || refinementData.questions.some(q => !selectedOptions[q.id] && !customInputs[q.id])}
                         className="flex-1 py-3 px-4 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-indigo-200 flex items-center justify-center gap-2"
                     >
                         {isLoading ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}

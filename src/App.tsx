@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { GanttChart } from './components/GanttChart';
+import { ViewMode } from 'gantt-task-react';
 import { Sidebar, MobileMenu } from './components/Sidebar';
 import { ProjectSummary } from './components/ProjectSummary';
 import { TaskForm } from './components/TaskForm';
@@ -27,6 +28,7 @@ import { TopMenuBar } from './components/TopMenuBar';
 import { parseProjectXML } from './services/ProjectImportService';
 import { exportProjectToXML } from './services/ProjectExportService';
 import { calculateBusinessDays } from './lib/utils';
+import { generateProposalPpt } from './services/proposalGenerator';
 
 // --- Stats Helper ---
 const countBusinessDays = (startDate: Date | undefined, endDate: Date | undefined) => {
@@ -240,6 +242,7 @@ function App() {
     const [isOnline, setIsOnline] = useState(navigator.onLine);
     const [currentView, setCurrentView] = useState('clients_manage');
     const [ganttTab, setGanttTab] = useState<'schedule' | 'tasks' | 'context' | 'premises'>('schedule');
+    const [ganttViewMode, setGanttViewMode] = useState<ViewMode>(ViewMode.Year);
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
     const [isStabilizationModalOpen, setIsStabilizationModalOpen] = useState(false);
     const [isEstimateModalOpen, setIsEstimateModalOpen] = useState(false);
@@ -677,6 +680,52 @@ function App() {
         // Filter tasks for current project. dbTasks is the source of truth from subscription.
         const tasksToExport = dbTasks.filter(t => t.projectId === selectedProjectId);
         exportProjectToXML(project, tasksToExport);
+    };
+
+    const handleExportProposal = async () => {
+        if (!selectedProjectId) return;
+        const project = projects.find(p => p.id === selectedProjectId);
+        if (!project) return;
+
+        const projectTasks = dbTasks.filter(t => t.projectId === selectedProjectId);
+        let templateConfig = undefined;
+        try {
+            const storedTemplate = localStorage.getItem('PPT_TEMPLATE_CONFIG');
+            if (storedTemplate) {
+                templateConfig = JSON.parse(storedTemplate);
+                console.log("Loaded Template Config:", templateConfig);
+            } else {
+                console.warn("No Template Config found in localStorage");
+            }
+        } catch (e) {
+            console.error("Error parsing PPT template config", e);
+        }
+
+        const ganttEl = document.getElementById('gantt-chart-area');
+
+        if (!ganttEl) {
+            // Even if no visual chart, we can generate the Native Roadmap if we have tasks
+            if (confirm("Visualização do Cronograma não encontrada (Necessário estar na aba 'Contronograma' para captura de imagem). Deseja gerar a proposta apenas com o Roadmap Macro nativo?")) {
+                await generateProposalPpt(project, { includeGantt: false, tasks: projectTasks, templateConfig });
+            }
+            return;
+        }
+
+
+
+        try {
+            // Slight delay to ensure render
+            await generateProposalPpt(project, {
+                includeGantt: true,
+                ganttElementId: 'gantt-chart-area',
+                tasks: projectTasks,
+                viewMode: ganttViewMode,
+                templateConfig: templateConfig
+            });
+        } catch (e: any) {
+            console.error(e);
+            alert("Erro ao gerar proposta: " + e.message);
+        }
     };
 
     const handleUpdateClient = async (updatedClient: any) => {
@@ -1151,7 +1200,11 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
             />
 
             <div className="flex-1 flex flex-col min-w-0">
-                <TopMenuBar onImport={handleImportProject} onExport={selectedProjectId ? handleExportProject : undefined} />
+                <TopMenuBar
+                    onImport={handleImportProject}
+                    onExport={selectedProjectId ? handleExportProject : undefined}
+                    onExportProposal={selectedProjectId ? handleExportProposal : undefined}
+                />
                 {!isOnline && (
                     <div className="bg-red-600 text-white px-4 py-3 text-center text-sm font-bold flex justify-center items-center gap-2 shadow-md animate-in slide-in-from-top-2 z-50 transition-all">
                         <CloudOff size={20} />
@@ -1419,6 +1472,7 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
                                             onReorderTasks={handleReorderTasks}
                                             onIndent={handleIndentTask}
                                             onOutdent={handleOutdentTask}
+                                            onViewModeChange={setGanttViewMode}
                                             isModalOpen={isTaskModalOpen || isStabilizationModalOpen || isEstimateModalOpen}
                                             onLandscapeModeChange={setIsGanttLandscape}
                                         />
