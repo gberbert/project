@@ -1,0 +1,14 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-size: 13px;
+    /* Mimic 80% zoom (16px * 0.8 ~= 12.8px) */
+  }
+
+  body {
+    @apply bg-gray-50 text-gray-900;
+  }
+}
