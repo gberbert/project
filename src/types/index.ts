@@ -57,6 +57,7 @@ export interface ProjectTeamMember {
     role: string;
     quantity: number;
     responsibilities: string[];
+    hourlyRate?: number; // Sugestão de custo por hora
 }
 
 // Helper for AI Documentation Structure
@@ -66,6 +67,18 @@ export interface AIDocumentation {
     implementation_steps: string;  // Markdown
     testing_strategy: string;      // Markdown
     [key: string]: string;         // Allow dynamic keys from custom prompts
+}
+
+export interface ScopeChange {
+    item: string;
+    type: 'added' | 'removed' | 'modified';
+    justification: string;
+}
+
+export interface ScopeDelta {
+    original_scope_summary: string;
+    final_scope_summary: string;
+    changes: ScopeChange[];
 }
 
 export interface Project {
@@ -92,6 +105,7 @@ export interface Project {
     clientResponsibilities?: ClientResponsibility[];
     raciMatrix?: RaciItem[];
     teamStructure?: ProjectTeamMember[];
+    scopeDelta?: ScopeDelta;
 }
 
 // Helper for UI view

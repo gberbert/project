@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { EstimateResult, ClarificationResult, ClarificationQuestion, geminiService, RefinementResponse, InterviewQuestion } from '../services/geminiService';
 import { MarkdownRenderer } from './MarkdownRenderer';
-import { Bot, User, Paperclip, Send, Loader2, X, AlertCircle, FileText, LayoutDashboard, CheckSquare, Target, Sparkles, Wand2, ArrowRight, Users } from 'lucide-react';
+import { Bot, User, Paperclip, Send, Loader2, X, AlertCircle, FileText, LayoutDashboard, CheckSquare, Target, Sparkles, Wand2, ArrowRight, Users, ArrowRightLeft } from 'lucide-react';
 
 export interface EstimateModalProps {
     isOpen: boolean;
@@ -25,7 +25,7 @@ interface Message {
 
 // Sub-component for the rich estimate view with tabs
 const EstimateView = ({ estimate, onApply, isApplying }: { estimate: EstimateResult, onApply: () => void, isApplying: boolean }) => {
-    const [activeTab, setActiveTab] = useState<'summary' | 'context' | 'planning'>('summary');
+    const [activeTab, setActiveTab] = useState<'summary' | 'context' | 'planning' | 'delta'>('summary');
 
     const TabButton = ({ id, label, icon: Icon }: { id: typeof activeTab, label: string, icon: any }) => (
         <button
@@ -52,6 +52,7 @@ const EstimateView = ({ estimate, onApply, isApplying }: { estimate: EstimateRes
                 <TabButton id="summary" label="Resumo & Gantt" icon={LayoutDashboard} />
                 <TabButton id="context" label="Contexto do Projeto" icon={FileText} />
                 <TabButton id="planning" label="Premissas & RACI" icon={CheckSquare} />
+                <TabButton id="delta" label="Escopo (Delta)" icon={ArrowRightLeft} />
             </div>
 
             {/* Content Areas */}
@@ -213,7 +214,7 @@ const EstimateView = ({ estimate, onApply, isApplying }: { estimate: EstimateRes
                                 <section>
                                     <h4 className="font-bold text-gray-900 mb-2">Premissas Técnicas</h4>
                                     <ul className="list-disc pl-5 space-y-1 text-gray-700 bg-white p-3 rounded-lg border border-gray-200">
-                                        {estimate.strategic_planning.technical_premises.map((p, i) => (
+                                        {(estimate.strategic_planning.technical_premises || []).map((p, i) => (
                                             <li key={i}>{p}</li>
                                         ))}
                                     </ul>
@@ -231,14 +232,14 @@ const EstimateView = ({ estimate, onApply, isApplying }: { estimate: EstimateRes
                                                 </tr>
                                             </thead>
                                             <tbody className="bg-white divide-y divide-gray-200">
-                                                {estimate.strategic_planning.client_responsibilities.map((item, i) => (
+                                                {(estimate.strategic_planning.client_responsibilities || []).map((item, i) => (
                                                     <tr key={i}>
                                                         <td className="px-3 py-2 text-gray-800">{item.action_item}</td>
                                                         <td className="px-3 py-2 text-gray-600 italic">{item.deadline_description}</td>
                                                         <td className="px-3 py-2">
-                                                            <span className={`inline - flex items - center px - 2 py - 0.5 rounded text - xs font - medium ${item.impact === 'BLOCKER' ? 'bg-red-100 text-red-800' :
+                                                            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${item.impact === 'BLOCKER' ? 'bg-red-100 text-red-800' :
                                                                 item.impact === 'HIGH' ? 'bg-orange-100 text-orange-800' : 'bg-blue-100 text-blue-800'
-                                                                } `}>
+                                                                }`}>
                                                                 {item.impact}
                                                             </span>
                                                         </td>
@@ -263,7 +264,7 @@ const EstimateView = ({ estimate, onApply, isApplying }: { estimate: EstimateRes
                                                 </tr>
                                             </thead>
                                             <tbody className="bg-white divide-y divide-gray-200">
-                                                {estimate.strategic_planning.raci_matrix.map((item, i) => (
+                                                {(estimate.strategic_planning.raci_matrix || []).map((item, i) => (
                                                     <tr key={i}>
                                                         <td className="px-3 py-2 text-gray-800 font-medium">{item.activity_group}</td>
                                                         <td className="px-3 py-2 text-gray-600 text-xs">{item.responsible}</td>
@@ -284,6 +285,53 @@ const EstimateView = ({ estimate, onApply, isApplying }: { estimate: EstimateRes
                         )}
                     </div>
                 )}
+
+                {activeTab === 'delta' && (
+                    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300 text-sm h-[350px] overflow-y-auto custom-scrollbar pr-2">
+                        {!estimate.scope_delta ? (
+                            <div className="text-center py-12 text-gray-400 bg-gray-50 rounded-xl border border-dashed border-gray-300">
+                                <ArrowRightLeft size={48} className="mx-auto mb-3 opacity-20" />
+                                <p className="font-medium">Análise de Delta não disponível.</p>
+                                <p className="text-xs mt-1">Gere uma nova estimativa para visualizar.</p>
+                            </div>
+                        ) : (
+                            <>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
+                                        <h4 className="font-bold text-gray-700 mb-2 flex items-center gap-2">
+                                            <Target size={16} /> Escopo Inicial
+                                        </h4>
+                                        <p className="text-gray-600">{estimate.scope_delta.original_scope_summary}</p>
+                                    </div>
+                                    <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-200">
+                                        <h4 className="font-bold text-indigo-900 mb-2 flex items-center gap-2">
+                                            <Sparkles size={16} /> Escopo Final
+                                        </h4>
+                                        <p className="text-indigo-800">{estimate.scope_delta.final_scope_summary}</p>
+                                    </div>
+                                </div>
+                                <div>
+                                    <h4 className="font-bold text-gray-900 mb-3 px-1 border-b pb-2">Mudanças e Justificativas</h4>
+                                    <div className="space-y-3">
+                                        {estimate.scope_delta.changes.map((change, idx) => (
+                                            <div key={idx} className={`p-3 rounded-lg border-l-4 shadow-sm bg-white ${change.type === 'added' ? 'border-l-emerald-500' :
+                                                change.type === 'removed' ? 'border-l-red-500' : 'border-l-amber-500'
+                                                }`}>
+                                                <div className="flex justify-between items-start">
+                                                    <span className="font-bold text-gray-800">{change.item}</span>
+                                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${change.type === 'added' ? 'bg-emerald-100 text-emerald-700' :
+                                                        change.type === 'removed' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
+                                                        }`}>{change.type === 'added' ? 'Adicionado' : change.type === 'removed' ? 'Removido' : 'Modificado'}</span>
+                                                </div>
+                                                <p className="text-xs text-gray-600 italic mt-1">"{change.justification}"</p>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </>
+                        )}
+                    </div>
+                )}
             </div>
         </div>
     );
@@ -292,12 +340,16 @@ const EstimateView = ({ estimate, onApply, isApplying }: { estimate: EstimateRes
 
 
 export const EstimateModal = ({ isOpen, onClose, onApplyEstimate, user, clientContext = '', knowledgeBase = [] }: EstimateModalProps) => {
+    // Component Version: Validation Flow Fixed
     // --- UI/Chat State ---
     const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState('');
     const [pendingFiles, setPendingFiles] = useState<{ name: string, type: string, data: string }[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [validationState, setValidationState] = useState<'idle' | 'validating' | 'reviewing' | 'accepted'>('idle');
+    const [validationData, setValidationData] = useState<string>('');
+    const [validationFiles, setValidationFiles] = useState<{ name: string, type: string, data: string }[]>([]);
     const [isApplying, setIsApplying] = useState(false);
 
     // --- Config State ---
@@ -333,9 +385,12 @@ export const EstimateModal = ({ isOpen, onClose, onApplyEstimate, user, clientCo
             setCustomInputs({});
             setIsRefining(false);
             setProjectContext("");
+            setValidationState('idle');
+            setValidationData('');
             setInput("");
             setPendingFiles([]);
             setError(null);
+            setIsApplying(false);
         }
     }, [isOpen]);
 
@@ -489,24 +544,83 @@ export const EstimateModal = ({ isOpen, onClose, onApplyEstimate, user, clientCo
     const handleSend = async () => {
         if ((!input.trim() && pendingFiles.length === 0) || isLoading) return;
 
-        const userMsg: Message = {
+        const newUserMsg: Message = {
             id: Date.now().toString(),
             role: 'user',
             content: input,
+            text: input, // legacy
             attachments: pendingFiles.map(f => f.name)
         };
 
-        setMessages(prev => [...prev, userMsg]);
+        setMessages(prev => [...prev, newUserMsg]);
+        const currentInput = input;
+
+        // Preserve files for API call
+        const currentFiles = [...pendingFiles];
+
         setInput('');
         setPendingFiles([]);
         setIsLoading(true);
         setError(null);
 
         try {
-            // First interaction triggers refinement if not already refining, OR if we want to force start
-            if (!isRefining) {
+            // SAFETY: Force reset on first interaction to avoid skipping validation
+            let currentValidationState = validationState;
+            let currentIsRefining = isRefining;
+
+            if (messages.length <= 1) {
+                currentValidationState = 'idle';
+                currentIsRefining = false;
+                setValidationState('idle');
+                setIsRefining(false);
+                setRefinementData(null);
+            }
+
+            // STEP 1: INITIAL UNDERSTANDING (If not yet accepted and not currently refining)
+            if (currentValidationState !== 'accepted' && !currentIsRefining) {
+                // Ensure we don't have leftover refinement data showing up ghost panels
+                setRefinementData(null);
+
+                // Preserve existing validation files if new ones aren't provided (for correction flow)
+                let filesToProcess = currentFiles;
+                if (validationFiles.length > 0) {
+                    // Combine existing files with new ones (if any), avoiding duplicates based on name
+                    const existingNames = new Set(validationFiles.map(f => f.name));
+                    const newUniqueFiles = currentFiles.filter(f => !existingNames.has(f.name));
+                    filesToProcess = [...validationFiles, ...newUniqueFiles];
+                }
+
+                setValidationFiles(filesToProcess); // Persist the full set of files
+                setValidationState('validating');
+
+                // Construct history for understanding including files
+                const validationHistory = messages.map(m => ({
+                    role: m.role === 'user' ? 'user' : 'model' as "user" | "model",
+                    parts: [{ text: m.content || m.text || '' }]
+                }));
+                // Add current message
+                validationHistory.push({ role: 'user', parts: [{ text: currentInput }] });
+
+                const understanding = await geminiService.getInitialUnderstanding(
+                    validationHistory,
+                    filesToProcess
+                );
+
+                setValidationData(understanding);
+                setValidationState('reviewing');
+
+                const aiMsg: Message = {
+                    id: (Date.now() + 1).toString(),
+                    role: 'assistant',
+                    content: "Analisei o contexto atualizado. Por favor, valide meu entendimento revisto antes de prosseguirmos.",
+                    isError: false
+                };
+                setMessages(prev => [...prev, aiMsg]);
+
+            } else if (!isRefining) {
+                // Should not happen if flow works, but fallback to direct refinement
                 setIsRefining(true);
-                setProjectContext(input);
+                setProjectContext(currentInput);
 
                 const refinementResponse = await geminiService.refineRequirements(
                     messages
@@ -514,27 +628,25 @@ export const EstimateModal = ({ isOpen, onClose, onApplyEstimate, user, clientCo
                         .map(m => ({
                             role: (m.role === 'user' ? 'user' : 'model') as "user" | "model",
                             parts: [{ text: m.content || m.text || '' }]
-                        })).concat([{ role: 'user', parts: [{ text: input }] }]),
-                    input
+                        })).concat([{ role: 'user', parts: [{ text: currentInput }] }]),
+                    currentInput,
+                    undefined,
+                    currentFiles
                 );
                 setRefinementData(refinementResponse);
             } else {
-                // If user types manually during refinement, we treat it as context update
-                const refinementResponse = await geminiService.refineRequirements(
-                    messages
-                        .filter(m => m.id !== 'welcome' && !m.isError)
-                        .map(m => ({
-                            role: (m.role === 'user' ? 'user' : 'model') as "user" | "model",
-                            parts: [{ text: m.content || m.text || '' }]
-                        })).concat([{ role: 'user', parts: [{ text: input }] }]),
-                    projectContext || input
-                );
-                setRefinementData(refinementResponse);
+                // CHAT DURING REFINEMENT
+                setMessages(prev => [...prev, {
+                    id: Date.now().toString(),
+                    role: 'assistant',
+                    content: "Por favor, utilize o formulário acima para responder às perguntas de refinamento, ou clique em 'Gerar Plano' se já estiver satisfeito."
+                }]);
             }
         } catch (err: any) {
             console.error(err);
             setError('Erro ao processar solicitação. Verifique sua API Key ou tente novamente.');
             setIsRefining(false);
+            setValidationState('idle');
             setMessages(prev => [...prev, {
                 id: Date.now().toString() + 'err',
                 role: 'assistant',
@@ -543,6 +655,58 @@ export const EstimateModal = ({ isOpen, onClose, onApplyEstimate, user, clientCo
             }]);
         } finally {
             setIsLoading(false);
+        }
+    };
+
+    const handleValidationAction = async (action: 'approve' | 'adjust', adjustmentText?: string) => {
+        if (action === 'approve') {
+            setValidationState('accepted');
+            setIsRefining(true);
+            setIsLoading(true);
+
+            try {
+                // Initialize refinement with verified context
+                // We should include current validationFiles in the context logic
+                const history = messages
+                    .filter(m => !m.isError && m.id !== 'welcome')
+                    .map(m => ({
+                        role: m.role === 'user' ? 'user' : 'model' as "user" | "model",
+                        parts: [{ text: m.content || m.text || '' }]
+                    }));
+
+                const firstUserMsg = messages.find(m => m.role === 'user');
+                const pContext = firstUserMsg ? (firstUserMsg.content || firstUserMsg.text || '') : validationData;
+                setProjectContext(pContext);
+
+                const refinementResponse = await geminiService.refineRequirements(
+                    history,
+                    pContext,
+                    undefined,
+                    validationFiles // Pass stored files!
+                );
+                setRefinementData(refinementResponse);
+
+            } catch (err) {
+                console.error(err);
+                setError("Erro ao iniciar refinamento. Verifique se o conteúdo do projeto é válido.");
+                setIsRefining(false); // Reset refining state on error to allow retry
+                setValidationState('reviewing'); // Go back to review so user can try again
+            } finally {
+                setIsLoading(false);
+            }
+        } else {
+            // ACTION: ADJUST / CORRECT
+            // Reset state to allow user to provide feedback and strictly re-run Initial Understanding
+            setValidationState('idle');
+            setValidationData(''); // Clear previous understanding to hide the card
+
+            setMessages(prev => [...prev, {
+                id: Date.now().toString(),
+                role: 'assistant',
+                content: "Entendido. Por favor, descreva em detalhes o que está incorreto ou o que falta considerar. Vou reavaliar o contexto com suas observações."
+            }]);
+
+            // Ensure input is focused and ready (if ref exists, though logic is mainly state-based)
         }
     };
 
@@ -607,22 +771,34 @@ export const EstimateModal = ({ isOpen, onClose, onApplyEstimate, user, clientCo
                             </label>
 
                             <div className="space-y-2">
-                                {q.options.map((opt, i) => (
-                                    <label key={i} className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${selectedOptions[q.id] === opt
-                                        ? 'bg-indigo-50 border-indigo-300 ring-1 ring-indigo-300'
-                                        : 'bg-white border-gray-200 hover:border-indigo-200'
-                                        }`}>
-                                        <input
-                                            type="radio"
-                                            name={q.id}
-                                            value={opt}
-                                            checked={selectedOptions[q.id] === opt}
-                                            onChange={(e) => handleOptionSelect(q.id, e.target.value)}
-                                            className="w-4 h-4 text-indigo-600 border-gray-300 focus:ring-indigo-500"
-                                        />
-                                        <span className="text-sm text-gray-700">{opt}</span>
-                                    </label>
-                                ))}
+                                {q.options.map((opt, i) => {
+                                    const isRecommended = opt.toLowerCase().includes('[recomendado]') || opt.toLowerCase().includes('(recomendado)');
+                                    const cleanOpt = opt.replace(/\[recomendado\]/gi, '').replace(/\(recomendado\)/gi, '').trim();
+
+                                    return (
+                                        <label key={i} className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${selectedOptions[q.id] === opt
+                                            ? 'bg-indigo-50 border-indigo-300 ring-1 ring-indigo-300'
+                                            : 'bg-white border-gray-200 hover:border-indigo-200'
+                                            }`}>
+                                            <input
+                                                type="radio"
+                                                name={q.id}
+                                                value={opt} // Keep original value for logic consistency
+                                                checked={selectedOptions[q.id] === opt}
+                                                onChange={(e) => handleOptionSelect(q.id, e.target.value)}
+                                                className="w-4 h-4 text-indigo-600 border-gray-300 focus:ring-indigo-500 mt-0.5 self-start"
+                                            />
+                                            <div className="flex-1">
+                                                <span className="text-sm text-gray-700 block">{cleanOpt}</span>
+                                                {isRecommended && (
+                                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-green-100 text-green-700 mt-1 uppercase tracking-wider">
+                                                        Recomendado
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </label>
+                                    );
+                                })}
 
                                 {q.allow_custom && (
                                     <div className="mt-2 text-xs">
@@ -712,81 +888,146 @@ export const EstimateModal = ({ isOpen, onClose, onApplyEstimate, user, clientCo
 
     return (
         <div className={`fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 transition-all duration-300 ${isOpen ? 'opacity-100 visible' : 'opacity-0 invisible'}`}>
-            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
-            <div className="relative bg-white w-full max-w-4xl h-[85vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden ring-1 ring-gray-900/5">
-                {/* Header */}
-                <div className="flex items-center justify-between p-4 border-b border-gray-100 bg-white z-10">
-                    <div className="flex items-center gap-3">
-                        <div className="bg-indigo-50 p-2 rounded-xl">
-                            <Sparkles className="text-indigo-600" size={24} />
+            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+
+            <div className={`relative bg-white w-full ${isRefining && refinementData ? 'max-w-7xl' : 'max-w-4xl'} h-[90vh] rounded-2xl shadow-2xl flex overflow-hidden ring-1 ring-gray-900/5 transition-all duration-500`}>
+
+                {/* LEFT SIDE: CHAT */}
+                <div className="flex-1 flex flex-col min-w-0">
+                    {/* Header */}
+                    <div className="flex items-center justify-between p-4 border-b border-gray-100 bg-white z-10">
+                        <div className="flex items-center gap-3">
+                            <div className="bg-indigo-50 p-2 rounded-xl">
+                                <Sparkles className="text-indigo-600" size={24} />
+                            </div>
+                            <div>
+                                <h2 className="text-lg font-bold text-gray-900 leading-tight">UERJ-FAF 2025</h2>
+                                <p className="text-xs text-gray-500 font-medium flex items-center gap-1">
+                                    {isConfigured ? (
+                                        <>
+                                            <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                                            IA Pronta para planejar
+                                        </>
+                                    ) : 'Configuração necessária'}
+                                </p>
+                            </div>
                         </div>
-                        <div>
-                            <h2 className="text-lg font-bold text-gray-900 leading-tight">UERJ-FAF 2025</h2>
-                            <p className="text-xs text-gray-500 font-medium">{isConfigured ? 'IA Pronta para planejar' : 'Configuração necessária'}</p>
-                        </div>
+                        <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full text-gray-400 hover:text-gray-600 transition-colors">
+                            <X size={20} />
+                        </button>
                     </div>
-                    <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full text-gray-400 hover:text-gray-600 transition-colors">
-                        <X size={20} />
-                    </button>
-                </div>
 
-                {/* Messages Area */}
-                <div className="flex-1 overflow-y-auto p-4 space-y-6 bg-gray-50/50 scroll-smooth relative">
-                    {!isConfigured ? (
-                        <div className="h-full flex flex-col items-center justify-center text-center p-8 opacity-60">
-                            <AlertCircle size={48} className="text-orange-400 mb-4" />
-                            <h3 className="text-lg font-semibold text-gray-800">API Key não configurada</h3>
-                            <p className="text-sm text-gray-600 max-w-md mt-2">
-                                Para usar a IA, você precisa adicionar sua chave do Google Gemini nas configurações do sistema.
-                            </p>
-                        </div>
-                    ) : (
-                        <>
-                            {messages.map((msg, idx) => renderMessage(msg, idx))}
+                    {/* Messages Area */}
+                    <div className="flex-1 overflow-y-auto p-4 space-y-6 bg-gray-50/50 scroll-smooth relative">
+                        {!isConfigured ? (
+                            <div className="h-full flex flex-col items-center justify-center text-center p-8 opacity-60">
+                                <AlertCircle size={48} className="text-orange-400 mb-4" />
+                                <h3 className="text-lg font-semibold text-gray-800">API Key não configurada</h3>
+                                <p className="text-sm text-gray-600 max-w-md mt-2">
+                                    Para usar a IA, você precisa adicionar sua chave do Google Gemini nas configurações do sistema.
+                                </p>
+                            </div>
+                        ) : (
+                            <>
+                                {messages.map((msg, idx) => renderMessage(msg, idx))}
 
-                            {/* Render Refinement Form if active */}
-                            {isRefining && refinementData && renderRefinementForm()}
+                                {/* VALIDATION BLOCK */}
+                                {validationState === 'reviewing' && validationData && (
+                                    <div className="flex w-full justify-start animate-in fade-in slide-in-from-left-2 duration-500 mb-6">
+                                        <div className="flex max-w-[90%] md:max-w-[85%] gap-3 flex-row">
+                                            <div className="shrink-0 w-8 h-8 rounded-full bg-indigo-100 border border-indigo-200 text-indigo-700 flex items-center justify-center">
+                                                <Sparkles size={16} />
+                                            </div>
+                                            <div className="flex flex-col gap-3 w-full">
+                                                <div className="bg-white border border-indigo-100 shadow-md rounded-2xl rounded-tl-sm overflow-hidden relative group">
+                                                    <div className="absolute top-0 left-0 w-1 h-full bg-indigo-500"></div>
 
-                            {/* Loading State */}
-                            {isLoading && (
-                                <div className="flex gap-3 animate-pulse">
-                                    <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center flex-shrink-0">
-                                        <Bot size={18} />
+                                                    <div className="p-5 bg-indigo-50/10">
+                                                        <h4 className="font-bold text-indigo-900 flex items-center gap-2 mb-3">
+                                                            Confirmação de Entendimento
+                                                        </h4>
+                                                        <div className="prose prose-sm max-w-none text-gray-600 bg-white p-4 rounded-lg border border-indigo-50 scroll-smooth">
+                                                            <MarkdownRenderer content={validationData} />
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="flex items-center gap-2 p-3 bg-white border-t border-gray-100">
+                                                        <button
+                                                            onClick={() => handleValidationAction('adjust')}
+                                                            className="flex-1 py-2.5 px-4 bg-white border border-red-200 text-red-600 hover:bg-red-50 rounded-lg font-bold text-xs transition-colors flex items-center justify-center gap-2"
+                                                        >
+                                                            <X size={14} /> Corrigir / Ajustar
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleValidationAction('approve')}
+                                                            className="flex-1 py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2"
+                                                        >
+                                                            <CheckSquare size={14} /> Correto, Prosseguir
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
-                                    <div className="bg-white border border-gray-100 shadow-sm p-4 rounded-2xl rounded-tl-none flex items-center gap-2 text-gray-500 text-sm">
-                                        <Loader2 size={16} className="animate-spin" />
-                                        <span>Analisando solicitação e gerando planejamento...</span>
-                                    </div>
-                                </div>
-                            )}
-                            <div ref={messagesEndRef} />
-                        </>
-                    )}
-                </div>
+                                )}
 
-                {/* Input Area - Hide if Refining and waiting for input */}
-                <div className={`bg-white p-4 border-t border-gray-200 z-10 ${isRefining && refinementData ? 'opacity-50 pointer-events-none filter blur-[1px]' : ''}`}>
-                    {pendingFiles.length > 0 && (
-                        <div className="flex gap-2 mb-3 overflow-x-auto pb-2">
-                            {pendingFiles.map((f, i) => (
-                                <div key={i} className="bg-indigo-50 border border-indigo-100 text-indigo-700 text-xs px-3 py-1.5 rounded-full flex items-center gap-2 whitespace-nowrap">
-                                    <Paperclip size={12} />
-                                    <span className="max-w-[150px] truncate">{f.name}</span>
-                                    <button onClick={() => setPendingFiles(prev => prev.filter((_, idx) => idx !== i))} className="hover:text-red-500">
-                                        <X size={12} />
-                                    </button>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                    <div className="flex gap-2 items-end">
-                        <button
-                            className="p-3 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-colors"
-                            onClick={() => fileInputRef.current?.click()}
-                            disabled={!isConfigured || isLoading}
-                            title="Anexar arquivo (PDF, Imagem, Texto)"
-                        >
-                            <Paperclip size={20} />
+                                {/* Loading State */}
+                                {isLoading && (
+                                    <div className="flex gap-3 animate-pulse">
+                                        <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center flex-shrink-0">
+                                            <Bot size={18} />
+                                        </div>
+                                        <div className="bg-white border border-gray-100 shadow-sm p-4 rounded-2xl rounded-tl-none flex items-center gap-2 text-gray-500 text-sm">
+                                            <Loader2 size={16} className="animate-spin text-indigo-600" />
+                                            <span className="font-medium">
+                                                {validationState === 'validating' ? 'Analisando documento e contexto...' :
+                                                    isRefining ? 'O Analista está gerando perguntas...' : 'Processando...'}
+                                            </span>
+                                        </div>
+                                    </div>
+                                )}
+                                <div ref={messagesEndRef} />
+                            </>
+                        )}
+                    </div>
+
+                    {/* Input Area */}
+                    <div className="p-4 bg-white border-t border-gray-200 shrink-0">
+                        {error && (
+                            <div className="mb-3 p-3 bg-red-50 border border-red-100 rounded-lg flex items-center gap-2 text-red-700 text-xs animate-in slide-in-from-bottom-2">
+                                <AlertCircle size={14} />
+                                {error}
+                                <button onClick={() => setError(null)} className="ml-auto hover:text-red-900"><X size={14} /></button>
+                            </div>
+                        )}
+
+                        {/* File Preview */}
+                        {pendingFiles.length > 0 && (
+                            <div className="flex flex-wrap gap-2 mb-3">
+                                {pendingFiles.map((file, i) => (
+                                    <div key={i} className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 border border-indigo-100 rounded-lg text-xs font-medium text-indigo-700 animate-in zoom-in-95">
+                                        <Paperclip size={12} />
+                                        <span className="max-w-[150px] truncate">{file.name}</span>
+                                        <button
+                                            onClick={() => setPendingFiles(prev => prev.filter((_, idx) => idx !== i))}
+                                            className="hover:bg-indigo-100 p-0.5 rounded-full transition-colors"
+                                        >
+                                            <X size={12} />
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
+                        <div className="flex gap-2 items-end">
+                            <button
+                                onClick={() => fileInputRef.current?.click()}
+                                className="p-3 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all border border-transparent hover:border-indigo-100"
+                                title="Anexar arquivos"
+                                disabled={isLoading || (isRefining && validationState === 'accepted')}
+                            >
+                                <Paperclip size={20} />
+                            </button>
                             <input
                                 type="file"
                                 ref={fileInputRef}
@@ -794,33 +1035,67 @@ export const EstimateModal = ({ isOpen, onClose, onApplyEstimate, user, clientCo
                                 multiple
                                 onChange={handleFileSelect}
                             />
-                        </button>
-                        <div className="flex-1 relative">
-                            <textarea
-                                value={input}
-                                onChange={(e) => setInput(e.target.value)}
-                                onKeyDown={(e) => {
-                                    if (e.key === 'Enter' && !e.shiftKey) {
-                                        e.preventDefault();
-                                        handleSend();
-                                    }
-                                }}
-                                placeholder={isConfigured ? "Descreva seu projeto aqui..." : "Configure a API Key primeiro"}
-                                className="w-full bg-gray-100 border-0 rounded-xl px-4 py-3 focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all resize-none max-h-32 min-h-[50px]"
-                                disabled={!isConfigured || isLoading}
-                                rows={1}
-                                style={{ height: 'auto', minHeight: '52px' }}
-                            />
+
+                            <div className="flex-1 relative">
+                                <textarea
+                                    value={input}
+                                    onChange={(e) => setInput(e.target.value)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter' && !e.shiftKey) {
+                                            e.preventDefault();
+                                            handleSend();
+                                        }
+                                    }}
+                                    placeholder={isRefining ? "Utilize o formulário ao lado..." : "Digite os detalhes do projeto..."}
+                                    className="w-full bg-gray-50 border-gray-200 border rounded-xl px-4 py-3 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none resize-none min-h-[50px] max-h-[120px]"
+                                    rows={1}
+                                    disabled={isLoading || (isRefining && validationState === 'accepted') || validationState === 'reviewing'}
+                                />
+                            </div>
+
+                            <button
+                                onClick={handleSend}
+                                disabled={(!input.trim() && pendingFiles.length === 0) || isLoading || (isRefining && validationState === 'accepted') || validationState === 'reviewing'}
+                                className="p-3 bg-indigo-600 text-white rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 disabled:opacity-50 disabled:shadow-none transition-all transform active:scale-95"
+                            >
+                                {isLoading ? <Loader2 size={20} className="animate-spin" /> : <Send size={20} />}
+                            </button>
                         </div>
-                        <button
-                            onClick={() => handleSend()}
-                            disabled={(!input.trim() && pendingFiles.length === 0) || !isConfigured || isLoading}
-                            className="p-3 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-xl transition-all shadow-lg shadow-indigo-200"
-                        >
-                            <Send size={20} />
-                        </button>
                     </div>
                 </div>
+
+                {/* RIGHT SIDE: REFINEMENT FORM (Conditional) */}
+                {isRefining && refinementData && (
+                    <div className="w-full md:w-[450px] bg-slate-50 border-l border-gray-200 flex flex-col h-full animate-in slide-in-from-right-10 duration-500 shadow-2xl z-20">
+                        {/* Header */}
+                        <div className="p-4 border-b border-gray-200 bg-white flex justify-between items-center">
+                            <h3 className="font-bold text-gray-900 flex items-center gap-2">
+                                <Target size={18} className="text-indigo-600" />
+                                Refinamento Ativo
+                            </h3>
+                            {/* Option to exit refinement if needed, though usually not recommended during interview */}
+                            <button
+                                onClick={() => {
+                                    if (confirm("Deseja cancelar a entrevista e voltar?")) {
+                                        setIsRefining(false);
+                                        setRefinementData(null);
+                                        setValidationState('reviewing');
+                                    }
+                                }}
+                                className="text-gray-400 hover:text-red-500"
+                                title="Cancelar entrevista"
+                            >
+                                <X size={16} />
+                            </button>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
+                            {renderRefinementForm()}
+                        </div>
+                    </div>
+                )}
+
+
             </div>
         </div>
     );

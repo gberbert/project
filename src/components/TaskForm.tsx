@@ -1,4 +1,4 @@
-import { Task, Resource } from '../types';
+import { Task, Resource, ProjectTeamMember } from '../types';
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { X, Plus, Link2, ArrowRightCircle, ArrowLeftCircle, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Columns, Copy } from 'lucide-react';
 import {
@@ -12,6 +12,7 @@ import { SearchableSelect } from './SearchableSelect';
 interface TaskFormProps {
     task?: Task;
     resources: Resource[];
+    projectTeam?: ProjectTeamMember[]; // Team structure from AI
     allTasks: Task[];
     onSave: (task: Task) => void;
     onCancel: () => void;
@@ -19,7 +20,7 @@ interface TaskFormProps {
     forceLandscape?: boolean;
 }
 
-export const TaskForm = ({ task, resources, allTasks, onSave, onCancel, onSplit, forceLandscape = false }: TaskFormProps) => {
+export const TaskForm = ({ task, resources, projectTeam, allTasks, onSave, onCancel, onSplit, forceLandscape = false }: TaskFormProps) => {
     const [formData, setFormData] = useState<Partial<Task>>({
         progress: 0,
         dependencies: [],
@@ -515,6 +516,37 @@ export const TaskForm = ({ task, resources, allTasks, onSave, onCancel, onSplit,
                             <h3 className={sectionTitleClasses}>Execução e Financeiro</h3>
                         </div>
 
+                        {/* New Role Selector */}
+                        {projectTeam && projectTeam.length > 0 && (
+                            <div className="mb-4">
+                                <label className={labelClasses}>Profissional / Papel Sugerido</label>
+                                <select
+                                    value={formData.assignedResource || ''}
+                                    onChange={e => {
+                                        const roleName = e.target.value;
+                                        // Robust find with trimming
+                                        const role = projectTeam.find(r => r.role.trim() === roleName.trim());
+
+                                        setFormData(prev => ({
+                                            ...prev,
+                                            assignedResource: roleName,
+                                            // Explicitly set rate if role found (even if 0), otherwise keep manual
+                                            hourlyRate: (role && role.hourlyRate !== undefined && role.hourlyRate !== null) ? role.hourlyRate : prev.hourlyRate
+                                        }));
+                                    }}
+                                    className={`${inputClasses} bg-indigo-50 border-indigo-200 text-indigo-900 font-medium`}
+                                >
+                                    <option value="">-- Selecionar Papel da Equipe --</option>
+                                    {projectTeam.map((m, idx) => (
+                                        <option key={idx} value={m.role}>
+                                            {m.role} ({m.hourlyRate ? `R$ ${m.hourlyRate}/h` : 'Sem Taxa definida'})
+                                        </option>
+                                    ))}
+                                </select>
+                                <p className="text-[10px] text-gray-500 mt-1">Ao selecionar um papel, a taxa/hora será atualizada automaticamente (se definida na aba Equipe).</p>
+                            </div>
+                        )}
+
                         {/* Execução Real and Hourly Rate */}
                         <div className={`grid gap-4 ${isLandscapeMobile ? 'grid-cols-2 gap-2 text-xs' : 'grid-cols-1 md:grid-cols-2'}`}>
                             {/* Data Real */}
@@ -556,7 +588,7 @@ export const TaskForm = ({ task, resources, allTasks, onSave, onCancel, onSplit,
                             <div>
                                 <label className={labelClasses}>Valor Hora (R$)</label>
                                 <div className="relative">
-                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-bold text-xs">R$</span>
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-bold text-xs pointer-events-none">R$</span>
                                     <input
                                         type="number"
                                         value={formData.hourlyRate || ''}

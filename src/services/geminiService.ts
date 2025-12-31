@@ -32,6 +32,18 @@ export interface RefinementResponse {
     current_confidence_score: number; // 0 to 100 percentage
 }
 
+export interface ScopeChange {
+    item: string;
+    type: 'added' | 'removed' | 'modified';
+    justification: string;
+}
+
+export interface ScopeDelta {
+    original_scope_summary: string;
+    final_scope_summary: string;
+    changes: ScopeChange[];
+}
+
 export interface EstimateResult {
     project_name: string;
     description: string;
@@ -50,6 +62,9 @@ export interface EstimateResult {
 
     // NEW: Team Structure
     team_structure?: ProjectTeamMember[];
+
+    // NEW: Scope Delta Analysis
+    scope_delta?: ScopeDelta;
 }
 
 export interface ClarificationQuestion {
@@ -63,7 +78,7 @@ export interface ClarificationResult {
     questions: ClarificationQuestion[];
 }
 
-const INTERVIEWER_SYSTEM_INSTRUCTION = `
+export const DEFAULT_INTERVIEWER_INSTRUCTION = `
 Você é um Auditor Sênior de Projetos de TI e Arquiteto de Soluções. Sua função NÃO é estimar ainda, mas sim INVESTIGAR e REFINAR o escopo através de um interrogatório técnico estruturado.
 
 OBJETIVO:
@@ -82,9 +97,10 @@ RODADA 1 (MANDATÓRIA):
 Se esta for a primeira interação, as 4 primeiras perguntas SÃO OBRIGATÓRIAS e devem seguir esta ordem exata:
 1. Modelo de Desenvolvimento: (Opções: SaaS Multi-tenant, PaaS Platform, Taylor Made / Custom, Microsserviços Híbridos, Legado Modernization).
 2. Infraestrutura / Hosting: (Opções: AWS, Microsoft Azure, Google Cloud Platform, On-Premise / Híbrido, Vercel/Netlify/Edge).
-3. Tipo de Solução Específica: (Opções Variam, ex: Web App, Mobile Nativo, ERP/CRM, E-commerce, API Gateway).
-4. Stack Tecnológico (Back/Front/DB): (Opções: Node+React+Postgres, Java+Angular+Oracle, .NET+Blazor+SQLServer, Python+Vue+Mongo, Go+Svelte+Redis).
-5 a 10. Perguntas de contexto baseadas no input inicial do usuário (ex: sobre prazos, orçamento, compliance, usuários, integrações).
+3. Paralelismo de Equipe (MANDATÓRIO): "Devemos alocar profissionais para atuar simultaneamente em frentes distintas (ex: 3 devs para 3 módulos ao mesmo tempo) para reduzir o prazo total, assumindo maior custo mensal?" (Opções: Sim - Máximo Paralelismo, Sim - Moderado, Não - Sequencial/Waterfall Puro, Não - Equipe Reduzida, Depende do Orçamento).
+4. Tipo de Solução Específica: (Opções Variam, ex: Web App, Mobile Nativo, ERP/CRM, E-commerce, API Gateway).
+5. Stack Tecnológico (Back/Front/DB): (Opções: Node+React+Postgres, Java+Angular+Oracle, .NET+Blazor+SQLServer, Python+Vue+Mongo, Go+Svelte+Redis).
+6 a 10. Perguntas de contexto baseadas no input inicial do usuário (ex: sobre prazos, orçamento, compliance, usuários, integrações).
 
 RODADAS SUBSEQUENTES:
 Baseado nas respostas anteriores, aprofunde em áreas de risco (segurança, escalabilidade, migração de dados, UX, etc.).
@@ -114,6 +130,20 @@ FORMATO DE RESPOSTA (JSON APENAS):
 }
 `;
 
+export const DEFAULT_INITIAL_UNDERSTANDING_PROMPT = `
+Você é um Analista de Requisitos Sênior. Sua tarefa AGORA é apenas LER o contexto fornecido (texto e arquivos) e RESUMIR o seu entendimento sobre o projeto.
+
+OBJETIVO:
+Mostrar ao usuário que você compreendeu a ideia, o escopo macro e os objetivos, para validar se estamos na mesma página antes de iniciar o detalhamento técnico.
+
+DIRETRIZES:
+1. Retorne um resumo estruturado em Markdown (bullet points).
+2. Identifique: Objetivo Principal, Tipo de Aplicação (se claro), Possíveis Tecnologias (se citadas) e Público-alvo (se inferido).
+3. Seja conciso e direto.
+4. Ao final, pergunte explicitamente: "Meu entendimento está correto? Podemos seguir para o detalhamento técnico ou gostaria de ajustar algo?"
+5. NÃO comece a entrevista técnica (com perguntas de múltipla escolha) agora. Isso virá na próxima etapa. Apenas valide o entendimento.
+`;
+
 // --- STRUCTURAL PARTS OF SYSTEM PROMPT (FIXED) ---
 
 const PROMPT_IDENTITY_AND_RULES = `
@@ -130,20 +160,26 @@ Use o campo "category" no JSON com um destes valores exatos:
 3. **'testing'**: Para QA, testes unitários, testes de integração, bug fixes, homologação.
 4. **'rollout'**: Para deploy, treinamento, documentação final, lançamento e acompanhamento (Go-live).
 
-DIRETRIZES DE LÓGICA SDLC (CRÍTICO - MODELO CASCATA/WATERFALL RÍGIDO):
-1. **SEQUENCIALIDADE ESTRITA (ZERO OVERLAP)**:
-   - A fase de 'rollout' (Implantação, Treinamento, Produção) **JAMAIS** pode iniciar antes do fim COMPLETO da fase de 'testing'.
-   - O 'start_offset_days' da primeira tarefa de 'rollout' DEVE ser maior que ('start_offset' + 'duration') da última tarefa de 'testing'.
-   - NÃO paralelize Deploy/Docs com Homologação. Termine um, comece o outro.
+DIRETRIZES DE LÓGICA SDLC E PARALELISMO (CRÍTICO):
+1. **PARALELISMO INTELIGENTE (REGRA DE OURO)**:
+   - Verifique explicitamente se o usuário optou por "Máximo Paralelismo" nas respostas da entrevista.
+   - SE SIM: Você DEVE agendar tarefas de módulos independentes (ex: Backend Auth e Frontend Login, ou Módulo Financeiro e Módulo Vendas) para ocorrerem no MESMO intervalo de tempo (share same start_offset_days).
+   - O 'start_offset_days' dessas tarefas deve ser idêntico ou próximo, limitado apenas por dependências lógicas reais (ex: não dá pra testar sem codar).
 
-2. **DEPENDÊNCIAS MANDATÓRIAS**:
-   - A primeira tarefa de 'rollout' DEVE ter como dependência ('dependencies') a tarefa de "Aprovação de UAT/Homologação" da fase 'testing'.
-   - Garanta que a fase 'testing' inclua tempo para correção de bugs (Retestes) antes de liberar para Rollout.
+2. **DEPENDÊNCIAS MANDATÓRIAS (RIGOROSO)**:
+   - CADA tarefa (exceto a primeira "Milestone Zero") DEVE ter pelo menos um 'predecessor' definido no campo 'dependencies'.
+   - O campo 'dependencies' é um ARRAY de IDs de tarefas anteriores. NUNCA DEIXE VAZIO para tarefas subsequentes.
+   - Crie dependências lógicas (ex: Design -> Dev Frontend -> Teste Frontend).
+   - Se houver paralelismo, as tarefas paralelas podem ter o MESMO predecessor (Fork) e servirem de dependência para a mesma tarefa futura (Join).
 
-3. **TEMPO E DIAS ÚTEIS (CRÍTICO)**:
-   - Todas as estimativas de 'duration_days' e 'start_offset_days' DEVEM ser em **DIAS ÚTEIS**.
-   - Ignore finais de semana. 5 dias = 1 semana de trabalho.
-   - Seja realista: Ninguém codifica 8h/dia sem parar. Inclua buffer.
+3. **SEQUENCIALIDADE DE FASES**:
+   - Fase 'rollout' SÓ COMEÇA após o fim de 'testing'. (Predecessor obrigatório: Marco de Fim de Testes).
+   - 'start_offset_days' de Rollout > (start + duration) da última task de Test.
+
+4. **TEMPO E DIAS ÚTEIS**:
+   - Todas as estimativas de 'duration_days' e 'start_offset_days' são em DIAS ÚTEIS.
+   - 5 dias = 1 semana real.
+   - Seja realista.
 `;
 
 const PROMPT_JSON_OUTPUT_FORMAT = `
@@ -153,7 +189,15 @@ const PROMPT_JSON_OUTPUT_FORMAT = `
 4. **SAÍDA JSON (EXTENSIVA)**:
    - Retorne APENAS o JSON válido.
    - **IMPORTANTE**: No objeto "documentation", você DEVE incluir QUAISQUER NOVOS CAMPOS solicitados nas regras de contexto (ex: "scope", "risks", "budget").
+   - **ESTIMATIVA DE CUSTOS (MANDATÓRIO)**: Para cada membro da equipe ('team_structure') e para cada tarefa ('tasks'), você DEVE estimar um 'hourly_rate' realista em BRL (Reais), baseado na senioridade do papel (ex: Junior ~60-90, Pleno ~100-140, Senior ~150-200, Arquiteto/Manager ~220-300).
+   - Não deixe null ou 0.
    - Não se limite aos campos do exemplo abaixo. O exemplo é ilustrativo, mas a estrutura é flexível.
+
+5. **ANÁLISE DE DELTA DE ESCOPO (MANDATÓRIO)**:
+   - No objeto "scope_delta", compare o entendimento INICIAL (antes das perguntas) com o escopo FINAL.
+   - "original_scope_summary": Resumo do que foi pedido inicialmente.
+   - "final_scope_summary": Resumo do que será entregue agora.
+   - "changes": Lista de itens que foram adicionados, removidos ou modificados drásticamente após a entrevista técnica. Justifique cada mudança.
 
 Exemplo de Saída (Estimativa Completa):
 \`\`\`json
@@ -161,6 +205,14 @@ Exemplo de Saída (Estimativa Completa):
   "project_name": "Sistema ERP Cloud",
   "description": "Implementação completa de ERP...",
   "confidence_score": 0.9,
+  "scope_delta": {
+    "original_scope_summary": "ERP básico de Vendas",
+    "final_scope_summary": "ERP de Vendas + Módulo Financeiro Completo + App Mobile",
+    "changes": [
+        { "item": "App Mobile Nativo", "type": "added", "justification": "Identificado necessidade de força de vendas em campo durante perguntas." },
+        { "item": "Relatórios Legados", "type": "removed", "justification": "Cliente confirmou que usará PowerBI externo." }
+    ]
+  },
   "documentation": {
     "context_overview": "### Visão Geral\\nEste projeto visa modernizar...",
     "technical_solution": "### Arquitetura\\nUtilizaremos Microserviços...",
@@ -178,8 +230,8 @@ Exemplo de Saída (Estimativa Completa):
     ]
   },
   "team_structure": [
-      { "role": "Arquiteto de Soluções", "quantity": 1, "responsibilities": ["Definição de Cloud", "Segurança"] },
-      { "role": "Desenvolvedor Fullstack", "quantity": 2, "responsibilities": ["Frontend React", "Backend Node.js"] }
+      { "role": "Arquiteto de Soluções", "quantity": 1, "hourly_rate": 250, "responsibilities": ["Definição de Cloud", "Segurança"] },
+      { "role": "Desenvolvedor Fullstack", "quantity": 2, "hourly_rate": 120, "responsibilities": ["Frontend React", "Backend Node.js"] }
   ],
   "tasks": [
     { "id": "t1", "name": "Kick-off", "type": "task", "category": "planning", "start_offset_days": 0, "duration_days": 1, "role": "PM", "hourly_rate": 200 }
@@ -237,11 +289,15 @@ export class GeminiService {
         // Load custom generation rules from localStorage or use default
         const customRules = localStorage.getItem('GEMINI_CUSTOM_CONTEXT_RULES');
 
+        // Read user configured model or default to stable 1.5-flash
+        const textModel = localStorage.getItem('GEMINI_TEXT_MODEL') || "gemini-1.5-flash";
+
         this.model = this.genAI.getGenerativeModel({
-            model: "gemini-2.5-flash", // User requested specific model
+            model: textModel,
             systemInstruction: buildSystemInstruction(customRules || undefined),
             generationConfig: {
                 temperature: 0.7, // Creative enough for scenarios, precise enough for JSON
+                responseMimeType: "application/json" // FORCE VALID JSON OUTPUT
             }
         });
     }
@@ -315,13 +371,14 @@ export class GeminiService {
     async refineRequirements(
         history: { role: "user" | "model", parts: { text: string }[] }[],
         projectContext: string,
-        currentAnswers?: { questionId: string, answer: string }[]
+        currentAnswers?: { questionId: string, answer: string }[],
+        files?: { name: string, type: string, data: string }[]
     ): Promise<RefinementResponse> {
         if (!this.genAI) throw new Error("Gemini API not configured");
 
         const model = this.genAI.getGenerativeModel({
             model: "gemini-2.5-flash",  // User requested specific model
-            systemInstruction: INTERVIEWER_SYSTEM_INSTRUCTION,
+            systemInstruction: localStorage.getItem('GEMINI_INTERVIEWER_RULES') || DEFAULT_INTERVIEWER_INSTRUCTION,
             generationConfig: { responseMimeType: "application/json" }
         });
 
@@ -335,11 +392,27 @@ export class GeminiService {
             });
             userPrompt += `\nCom base nessas respostas, gere a PRÓXIMA rodada de 10 perguntas de aprofundamento. OBRIGATÓRIO: Gere 10 novas perguntas focadas em riscos não cobertos, detalhes de infra, segurança ou requisitos não funcionais.`;
         } else {
-            userPrompt += `Esta é a primeira rodada. Gere as 10 perguntas iniciais (incluindo as 4 mandatórias).`;
+            userPrompt += `Esta é a primeira rodada. Gere as 10 perguntas iniciais (incluindo as 4 mandatórias). Caso existam arquivos anexados, considere o conteúdo deles como parte fundamental do contexto.`;
         }
 
         const chat = model.startChat({ history });
-        const result = await chat.sendMessage(userPrompt);
+
+        // Handle files
+        let finalParts: any[] = [{ text: userPrompt }];
+        if (files && files.length > 0) {
+            const fileParts = files.map(f => {
+                const base64Data = f.data.includes('base64,') ? f.data.split('base64,')[1] : f.data;
+                return {
+                    inlineData: {
+                        mimeType: f.type,
+                        data: base64Data
+                    }
+                };
+            });
+            finalParts = [...finalParts, ...fileParts];
+        }
+
+        const result = await chat.sendMessage(finalParts);
         const text = result.response.text();
 
         const parsed = this.parseJSON(text);
@@ -348,6 +421,49 @@ export class GeminiService {
             throw new Error("Invalid JSON response from AI Interviewer");
         }
         return parsed as RefinementResponse;
+    }
+
+    async getInitialUnderstanding(
+        history: { role: "user" | "model", parts: { text: string }[] }[],
+        files?: { name: string, type: string, data: string }[]
+    ): Promise<string> {
+        if (!this.genAI) throw new Error("Gemini API not configured");
+
+        const model = this.genAI.getGenerativeModel({
+            model: "gemini-2.5-flash",
+            // Use custom initial prompt or default
+            systemInstruction: localStorage.getItem('GEMINI_INITIAL_UNDERSTANDING_PROMPT') || DEFAULT_INITIAL_UNDERSTANDING_PROMPT,
+        });
+
+        const chat = model.startChat({ history: [] }); // New chat for understanding
+
+        // Prepare context
+        let parts: any[] = history[history.length - 1].parts; // Usually the last user message
+
+        // If there is history, we might want to concatenate it differently, 
+        // but for now, we assume the history passed here is mainly the User's input + files
+        // Actually, let's construct a payload similar to sendMessage
+
+        // Re-construct the full user "context" to send at once
+        const userText = history.map(h => `${h.role === 'user' ? 'CLIENTE' : 'SISTEMA'}: ${h.parts[0].text}`).join('\n\n');
+
+        let finalParts: any[] = [{ text: `CONTEXTO DO PROJETO:\n${userText}` }];
+
+        if (files && files.length > 0) {
+            const fileParts = files.map(f => {
+                const base64Data = f.data.includes('base64,') ? f.data.split('base64,')[1] : f.data;
+                return {
+                    inlineData: {
+                        mimeType: f.type,
+                        data: base64Data
+                    }
+                };
+            });
+            finalParts = [...finalParts, ...fileParts];
+        }
+
+        const result = await chat.sendMessage(finalParts);
+        return result.response.text();
     }
 
     async generateEstimate(

@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Save, Eye, EyeOff, Check, Shield, ShieldAlert, Settings as SettingsIcon, FileText, RotateCcw, Info, LayoutTemplate, Image as ImageIcon, GripVertical, Trash2, Plus, Upload, X } from 'lucide-react';
+import { Save, Eye, EyeOff, Check, Shield, ShieldAlert, Settings as SettingsIcon, FileText, RotateCcw, Info, LayoutTemplate, Image as ImageIcon, GripVertical, Trash2, Plus, Upload, X, Bot, Sparkles } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { AppUser } from '../types/auth';
-import { DEFAULT_CONTEXT_RULES, geminiService } from '../services/geminiService';
+import { DEFAULT_CONTEXT_RULES, DEFAULT_INTERVIEWER_INSTRUCTION, DEFAULT_INITIAL_UNDERSTANDING_PROMPT, geminiService } from '../services/geminiService';
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -694,23 +694,39 @@ export const SettingsView = () => {
     const [showKey, setShowKey] = useState(false);
     const [message, setMessage] = useState('');
 
+    // Model Config State
+    const [textModel, setTextModel] = useState('gemini-1.5-flash');
+    const [imageModel, setImageModel] = useState('imagen-3');
+
     // Prompts State
     const [customContextRules, setCustomContextRules] = useState('');
+    const [interviewerPrompt, setInterviewerPrompt] = useState('');
+    const [initialPrompt, setInitialPrompt] = useState('');
+    const [activePromptTab, setActivePromptTab] = useState<'initial' | 'generation' | 'interviewer'>('initial');
 
-    // Template State
+    // Template & Users State
     const [templateConfig, setTemplateConfig] = useState<TemplateConfig>(DEFAULT_TEMPLATE_CONFIG);
     const [logoPreview, setLogoPreview] = useState<string | null>(null);
-    const [editingSlide, setEditingSlide] = useState<SlideConfig | null>(null); // For Overlay Editor
-
-    // User Management State
+    const [editingSlide, setEditingSlide] = useState<string | null>(null);
     const [users, setUsers] = useState<AppUser[]>([]);
-
     useEffect(() => {
         const storedKey = localStorage.getItem('GEMINI_API_KEY');
         if (storedKey) setApiKey(storedKey);
 
+        const storedTextModel = localStorage.getItem('GEMINI_TEXT_MODEL');
+        if (storedTextModel) setTextModel(storedTextModel);
+
+        const storedImageModel = localStorage.getItem('GEMINI_IMAGE_MODEL');
+        if (storedImageModel) setImageModel(storedImageModel);
+
         const storedRules = localStorage.getItem('GEMINI_CUSTOM_CONTEXT_RULES');
         setCustomContextRules(storedRules || DEFAULT_CONTEXT_RULES);
+
+        const storedInterviewer = localStorage.getItem('GEMINI_INTERVIEWER_RULES');
+        setInterviewerPrompt(storedInterviewer || DEFAULT_INTERVIEWER_INSTRUCTION);
+
+        const storedInitial = localStorage.getItem('GEMINI_INITIAL_UNDERSTANDING_PROMPT');
+        setInitialPrompt(storedInitial || DEFAULT_INITIAL_UNDERSTANDING_PROMPT);
 
         const storedTemplate = localStorage.getItem('PPT_TEMPLATE_CONFIG');
         if (storedTemplate) {
@@ -926,12 +942,28 @@ export const SettingsView = () => {
 
     const handleSave = () => {
         localStorage.setItem('GEMINI_API_KEY', apiKey);
+        localStorage.setItem('GEMINI_TEXT_MODEL', textModel);
+        localStorage.setItem('GEMINI_IMAGE_MODEL', imageModel);
 
         // Save Custom Rules
         if (customContextRules !== DEFAULT_CONTEXT_RULES) {
             localStorage.setItem('GEMINI_CUSTOM_CONTEXT_RULES', customContextRules);
         } else {
             localStorage.removeItem('GEMINI_CUSTOM_CONTEXT_RULES');
+        }
+
+        // Save Interviewer Rules
+        if (interviewerPrompt !== DEFAULT_INTERVIEWER_INSTRUCTION) {
+            localStorage.setItem('GEMINI_INTERVIEWER_RULES', interviewerPrompt);
+        } else {
+            localStorage.removeItem('GEMINI_INTERVIEWER_RULES');
+        }
+
+        // Save Initial Understanding Prompt
+        if (initialPrompt !== DEFAULT_INITIAL_UNDERSTANDING_PROMPT) {
+            localStorage.setItem('GEMINI_INITIAL_UNDERSTANDING_PROMPT', initialPrompt);
+        } else {
+            localStorage.removeItem('GEMINI_INITIAL_UNDERSTANDING_PROMPT');
         }
 
         // Save Template Config
@@ -947,8 +979,14 @@ export const SettingsView = () => {
     };
 
     const handleResetPrompt = () => {
-        if (window.confirm("Tem certeza que deseja restaurar as regras originais?")) {
-            setCustomContextRules(DEFAULT_CONTEXT_RULES);
+        if (window.confirm("Tem certeza que deseja restaurar as regras originais do prompt selecionado?")) {
+            if (activePromptTab === 'generation') {
+                setCustomContextRules(DEFAULT_CONTEXT_RULES);
+            } else if (activePromptTab === 'interviewer') {
+                setInterviewerPrompt(DEFAULT_INTERVIEWER_INSTRUCTION);
+            } else {
+                setInitialPrompt(DEFAULT_INITIAL_UNDERSTANDING_PROMPT);
+            }
         }
     };
 
@@ -1127,6 +1165,31 @@ export const SettingsView = () => {
                                             Obter chave <span className="text-[10px]">↗</span>
                                         </a>
                                     </p>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6 pt-6 border-t border-gray-100">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">Modelo de Texto (LLM)</label>
+                                            <input
+                                                type="text"
+                                                value={textModel}
+                                                onChange={(e) => setTextModel(e.target.value)}
+                                                placeholder="ex: gemini-1.5-flash"
+                                                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all font-mono text-sm bg-gray-50 focus:bg-white"
+                                            />
+                                            <p className="text-[10px] text-gray-400 mt-1">Padrão: gemini-1.5-flash</p>
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">Modelo de Imagem (Futuro)</label>
+                                            <input
+                                                type="text"
+                                                value={imageModel}
+                                                onChange={(e) => setImageModel(e.target.value)}
+                                                placeholder="ex: imagen-3"
+                                                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all font-mono text-sm bg-gray-50 focus:bg-white"
+                                            />
+                                            <p className="text-[10px] text-gray-400 mt-1">Padrão: imagen-3</p>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -1307,16 +1370,63 @@ export const SettingsView = () => {
                 {activeTab === 'prompts' && (
                     <div className="h-full flex flex-col p-4 md:p-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
                         <div className="flex-1 flex flex-col bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+
+                            {/* Prompt Type Tabs */}
+                            <div className="flex border-b border-gray-100 bg-gray-50/50">
+                                <button
+                                    onClick={() => setActivePromptTab('initial')}
+                                    className={`flex-1 py-3 px-4 text-sm font-bold transition-colors ${activePromptTab === 'initial' ? 'border-b-2 border-indigo-600 text-indigo-700 bg-white' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'}`}
+                                >
+                                    1. Entendimento Inicial
+                                </button>
+                                <button
+                                    onClick={() => setActivePromptTab('interviewer')}
+                                    className={`flex-1 py-3 px-4 text-sm font-bold transition-colors ${activePromptTab === 'interviewer' ? 'border-b-2 border-indigo-600 text-indigo-700 bg-white' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'}`}
+                                >
+                                    2. Entrevistador (Chat)
+                                </button>
+                                <button
+                                    onClick={() => setActivePromptTab('generation')}
+                                    className={`flex-1 py-3 px-4 text-sm font-bold transition-colors ${activePromptTab === 'generation' ? 'border-b-2 border-indigo-600 text-indigo-700 bg-white' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'}`}
+                                >
+                                    3. Documentação (Estimar)
+                                </button>
+                            </div>
+
                             {/* Prompt Header */}
-                            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center p-4 border-b border-gray-100 bg-gray-50/50 gap-4">
+                            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center p-4 border-b border-gray-100 bg-white gap-4">
                                 <div>
-                                    <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-                                        <FileText size={20} className="text-indigo-600" />
-                                        Configuração de Contexto & Documentação
-                                    </h3>
-                                    <p className="text-sm text-gray-500 mt-1">
-                                        Edite apenas as regras de geração da Documentação Técnica (Contexto) e Planejamento Estratégico (Premissas & RACI).
-                                    </p>
+                                    {activePromptTab === 'initial' ? (
+                                        <>
+                                            <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                                                <Sparkles size={20} className="text-indigo-600" />
+                                                Validação de Entendimento (Fase 1)
+                                            </h3>
+                                            <p className="text-sm text-gray-500 mt-1">
+                                                Prompt que orienta a IA a explicar o que entendeu do projeto ANTES de iniciar as perguntas.
+                                            </p>
+                                        </>
+                                    ) : activePromptTab === 'interviewer' ? (
+                                        <>
+                                            <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                                                <Bot size={20} className="text-indigo-600" />
+                                                Instruções do Sistema (Fase 2 - Chat)
+                                            </h3>
+                                            <p className="text-sm text-gray-500 mt-1">
+                                                Define a personalidade, regras de perguntas e algoritmo de confiança da entrevista.
+                                            </p>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                                                <FileText size={20} className="text-indigo-600" />
+                                                Regras de Documentação (Fase 3 - Saída)
+                                            </h3>
+                                            <p className="text-sm text-gray-500 mt-1">
+                                                Edite apenas as regras de geração da Documentação Técnica (Contexto) e Planejamento.
+                                            </p>
+                                        </>
+                                    )}
                                 </div>
                                 <button
                                     onClick={handleResetPrompt}
@@ -1330,43 +1440,76 @@ export const SettingsView = () => {
 
                             {/* Prompt Editor */}
                             <div className="flex-1 relative group bg-indigo-50/10 flex flex-col">
-                                {/* Top "Locked" Context hint */}
-                                <div className="px-6 py-2 bg-gray-100 border-b border-gray-200 text-xs text-gray-400 font-mono select-none flex items-center gap-2">
-                                    <Info size={12} />
-                                    [SISTEMA: Identidade, Regras SDLC e Formato JSON] (Não editável)
-                                </div>
-                                <div className="px-6 py-2 bg-indigo-100/50 border-b border-indigo-100 text-xs text-indigo-700 font-bold font-mono select-none uppercase tracking-wide">
-                                    ↓ Suas regras de geração (Injetadas no prompt)
-                                </div>
 
-                                <textarea
-                                    value={customContextRules}
-                                    onChange={(e) => setCustomContextRules(e.target.value)}
-                                    className="flex-1 w-full p-4 md:p-6 font-mono text-sm leading-relaxed text-indigo-900 bg-white outline-none resize-none selection:bg-indigo-100"
-                                    placeholder="Digite as instruções para Contexto e Planejamento aqui..."
-                                    spellCheck={false}
-                                />
+                                {activePromptTab === 'generation' ? (
+                                    <>
+                                        {/* Top "Locked" Context hint */}
+                                        <div className="px-6 py-2 bg-gray-100 border-b border-gray-200 text-xs text-gray-400 font-mono select-none flex items-center gap-2">
+                                            <Info size={12} />
+                                            [SISTEMA: Identidade, Regras SDLC e Formato JSON] (Não editável)
+                                        </div>
+                                        <div className="px-6 py-2 bg-indigo-100/50 border-b border-indigo-100 text-xs text-indigo-700 font-bold font-mono select-none uppercase tracking-wide">
+                                            ↓ Suas regras de geração (Injetadas no prompt)
+                                        </div>
 
-                                {/* Bottom "Locked" Context hint */}
-                                <div className="px-6 py-2 bg-gray-100 border-t border-gray-200 text-xs text-gray-400 font-mono select-none flex items-center gap-2">
-                                    <Info size={12} />
-                                    [SISTEMA: Exemplo de Saída JSON] (Não editável)
-                                </div>
+                                        <textarea
+                                            value={customContextRules}
+                                            onChange={(e) => setCustomContextRules(e.target.value)}
+                                            className="flex-1 w-full p-4 md:p-6 font-mono text-sm leading-relaxed text-indigo-900 bg-white outline-none resize-none selection:bg-indigo-100"
+                                            placeholder="Digite as instruções para Contexto e Planejamento aqui..."
+                                            spellCheck={false}
+                                        />
 
-                                {/* Optional: Stats or overlay */}
-                                <div className="absolute top-10 right-6 pointer-events-none opacity-50 text-[10px] text-gray-400 bg-white/80 px-2 py-1 rounded border border-gray-100">
-                                    {customContextRules.length} caracteres
+                                        {/* Bottom "Locked" Context hint */}
+                                        <div className="px-6 py-2 bg-gray-100 border-t border-gray-200 text-xs text-gray-400 font-mono select-none flex items-center gap-2">
+                                            <Info size={12} />
+                                            [SISTEMA: Exemplo de Saída JSON] (Não editável)
+                                        </div>
+                                    </>
+                                ) : activePromptTab === 'interviewer' ? (
+                                    <>
+                                        <div className="px-6 py-2 bg-indigo-100/50 border-b border-indigo-100 text-xs text-indigo-700 font-bold font-mono select-none uppercase tracking-wide">
+                                            ↓ Instrução de Sistema Completa (Substitui o padrão)
+                                        </div>
+                                        <textarea
+                                            value={interviewerPrompt}
+                                            onChange={(e) => setInterviewerPrompt(e.target.value)}
+                                            className="flex-1 w-full p-4 md:p-6 font-mono text-sm leading-relaxed text-indigo-900 bg-white outline-none resize-none selection:bg-indigo-100"
+                                            placeholder="Digite as instruções completas para o comportamento da IA..."
+                                            spellCheck={false}
+                                        />
+                                    </>
+                                ) : (
+                                    <>
+                                        <div className="px-6 py-2 bg-indigo-100/50 border-b border-indigo-100 text-xs text-indigo-700 font-bold font-mono select-none uppercase tracking-wide">
+                                            ↓ Instrução para Fase de Entendimento Inicial (Validação)
+                                        </div>
+                                        <textarea
+                                            value={initialPrompt}
+                                            onChange={(e) => setInitialPrompt(e.target.value)}
+                                            className="flex-1 w-full p-4 md:p-6 font-mono text-sm leading-relaxed text-indigo-900 bg-white outline-none resize-none selection:bg-indigo-100"
+                                            placeholder="Digite as instruções para a IA resumir o projeto..."
+                                            spellCheck={false}
+                                        />
+                                    </>
+                                )}
+
+                                {/* Stats Overlay */}
+                                <div className="absolute top-24 right-8 pointer-events-none opacity-50 text-[10px] text-gray-400 bg-white/90 px-2 py-1 rounded border border-gray-100 backdrop-blur-sm z-10">
+                                    {(activePromptTab === 'generation' ? customContextRules : activePromptTab === 'interviewer' ? interviewerPrompt : initialPrompt).length} caracteres
                                 </div>
                             </div>
 
                             {/* Prompt Footer/Meta */}
-                            <div className="p-3 bg-blue-50 border-t border-blue-100 text-xs text-blue-800 flex items-start gap-2">
-                                <Info size={14} className="mt-0.5 shrink-0" />
-                                <span className="opacity-90 leading-relaxed">
-                                    O texto acima será inserido no centro do Prompt do Sistema, entre as regras rígidas do sistema (SDLC) e o formato de saída JSON.
-                                    Use isso para personalizar o estilo da documentação ou adicionar novas seções ao relatório.
-                                </span>
-                            </div>
+                            {activePromptTab === 'generation' && (
+                                <div className="p-3 bg-blue-50 border-t border-blue-100 text-xs text-blue-800 flex items-start gap-2">
+                                    <Info size={14} className="mt-0.5 shrink-0" />
+                                    <span className="opacity-90 leading-relaxed">
+                                        O texto acima será inserido no centro do Prompt do Sistema, entre as regras rígidas do sistema (SDLC) e o formato de saída JSON.
+                                        Use isso para personalizar o estilo da documentação ou adicionar novas seções ao relatório.
+                                    </span>
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}

@@ -5,6 +5,7 @@ import { Sidebar, MobileMenu } from './components/Sidebar';
 import { ProjectSummary } from './components/ProjectSummary';
 import { TaskForm } from './components/TaskForm';
 import { TeamView } from './components/TeamView';
+import { ProjectTeamTab } from './components/ProjectTeamTab';
 import { DashboardView } from './components/DashboardView';
 import { TaskListView } from './components/TaskListView';
 import { ReportsView } from './components/ReportsView';
@@ -16,7 +17,7 @@ import { EstimateResult } from './services/geminiService';
 import { useProjectLogic } from './hooks/useProjectLogic';
 import { isAfter, isWeekend, addDays, differenceInDays, addBusinessDays } from 'date-fns';
 
-import { Task, Resource, Project } from './types';
+import { Task, Resource, Project, ProjectTeamMember } from './types';
 import { Database, CloudOff, Menu, Sparkles, CheckCircle, Activity, Lock, LogOut, ChevronDown, FileText, CheckSquare, Target, Pencil, Trash2, Users } from 'lucide-react';
 import { ProjectService, getNextWorkingDay } from './services/projectService';
 import { StabilizationModal } from './components/StabilizationModal';
@@ -241,7 +242,7 @@ function App() {
     const [connectionError, setConnectionError] = useState<string | null>(null);
     const [isOnline, setIsOnline] = useState(navigator.onLine);
     const [currentView, setCurrentView] = useState('clients_manage');
-    const [ganttTab, setGanttTab] = useState<'schedule' | 'tasks' | 'context' | 'premises'>('schedule');
+    const [ganttTab, setGanttTab] = useState<'schedule' | 'tasks' | 'context' | 'premises' | 'team'>('schedule');
     const [ganttViewMode, setGanttViewMode] = useState<ViewMode>(ViewMode.Year);
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
     const [isStabilizationModalOpen, setIsStabilizationModalOpen] = useState(false);
@@ -1043,7 +1044,51 @@ function App() {
             await onAddTaskWrapper(task);
         }
 
-        // 4. Update Project Metadata
+        // 4. Update Project Metadata with Derived Team Structure
+        // SINGLE SOURCE OF TRUTH: The Tasks themselves.
+        const derivedTeamMap = new Map<string, ProjectTeamMember>();
+
+        orderedTasks.forEach(t => {
+            if (t.type === 'task' && t.assignedResource) {
+                const roleName = t.assignedResource.trim();
+                if (!roleName) return;
+
+                const rate = t.hourlyRate || 0;
+
+                if (!derivedTeamMap.has(roleName)) {
+                    derivedTeamMap.set(roleName, {
+                        role: roleName,
+                        quantity: 1,
+                        hourlyRate: rate,
+                        responsibilities: []
+                    });
+                } else {
+                    const member = derivedTeamMap.get(roleName)!;
+                    member.quantity += 1;
+                    // Trust the task's rate. If we have a non-zero rate, ensure it's captured.
+                    if (rate > 0 && (!member.hourlyRate || member.hourlyRate === 0)) {
+                        member.hourlyRate = rate;
+                    }
+                }
+            }
+        });
+
+        // Try to enrich responsibilities from the AI's structural suggestion if names match
+        if (estimate.team_structure) {
+            estimate.team_structure.forEach(aiMember => {
+                const aiRole = aiMember.role.trim();
+                // We only care if this role actually exists in the tasks
+                if (derivedTeamMap.has(aiRole)) {
+                    const member = derivedTeamMap.get(aiRole)!;
+                    if (aiMember.responsibilities && aiMember.responsibilities.length > 0) {
+                        member.responsibilities = aiMember.responsibilities;
+                    }
+                }
+            });
+        }
+
+        const finalTeamStructure = Array.from(derivedTeamMap.values());
+
         if (selectedProjectId) {
             const updates = {
                 aiConfidence: estimate.confidence_score,
@@ -1052,7 +1097,8 @@ function App() {
                 technicalPremises: estimate.strategic_planning?.technical_premises,
                 clientResponsibilities: estimate.strategic_planning?.client_responsibilities,
                 raciMatrix: estimate.strategic_planning?.raci_matrix,
-                teamStructure: estimate.team_structure, // Persist Team Structure
+                teamStructure: finalTeamStructure, // NOW DERIVED FROM TASKS
+                scopeDelta: estimate.scope_delta,
             };
             if (isConnected) {
                 await ProjectService.updateProject(selectedProjectId, updates);
@@ -1147,6 +1193,62 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
         }
 
         setIsTaskModalOpen(false);
+    };
+
+    const handleUpdateTeam = async (newTeam: ProjectTeamMember[]) => {
+        if (!selectedProjectId) return;
+        const activeProject = projects.find(p => p.id === selectedProjectId);
+        if (activeProject) {
+            // 1. Update Project Structure locally
+            const updatedProject = { ...activeProject, teamStructure: newTeam };
+            setProjects(prev => prev.map(p => p.id === selectedProjectId ? updatedProject : p));
+
+            // 2. Cascade Update to Tasks
+            // Find tasks that need updating based on role match to ensure consistency
+            const updates: { id: string; data: Partial<Task> }[] = [];
+
+            // Map: Role Name -> Hourly Rate
+            const roleRateMap = new Map<string, number>();
+            newTeam.forEach(m => {
+                if (m.hourlyRate !== undefined) roleRateMap.set(m.role, m.hourlyRate);
+            });
+            // Iterate tasks for this project
+            const currentTasks = dbTasks.filter(t => t.projectId === selectedProjectId);
+
+            currentTasks.forEach(task => {
+                // Check 'assignedResource' (which holds the role name in our AI flow)
+                const roleKey = task.assignedResource;
+
+                if (roleKey && roleRateMap.has(roleKey)) {
+                    const newRate = roleRateMap.get(roleKey);
+                    // Only update if rate is different to minimize DB writes
+                    if (newRate !== undefined && task.hourlyRate !== newRate) {
+                        updates.push({
+                            id: task.id,
+                            data: { hourlyRate: newRate }
+                        });
+                    }
+                }
+            });
+
+            if (isConnected) {
+                // Persist Team Structure
+                await ProjectService.updateProject(selectedProjectId, { teamStructure: newTeam });
+
+                // Persist Task Updates (Batch)
+                if (updates.length > 0) {
+                    await ProjectService.batchUpdateTasks(updates);
+                }
+            }
+
+            // 3. Optimistic UI Update for Tasks
+            if (updates.length > 0) {
+                setDbTasks(prev => {
+                    const map = new Map(updates.map(u => [u.id, u.data]));
+                    return prev.map(t => map.has(t.id) ? { ...t, ...map.get(t.id) } : t);
+                });
+            }
+        }
     };
 
     if (authLoading) {
@@ -1456,6 +1558,16 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
                                 >
                                     <CheckSquare size={16} />
                                     Premissas & RACI
+                                </button>
+                                <button
+                                    onClick={() => setGanttTab('team')}
+                                    className={`flex items-center gap-2 px-4 py-2 lg:px-6 lg:py-3 text-xs lg:text-sm font-bold rounded-t-lg transition-all border border-b-0 relative ${ganttTab === 'team'
+                                        ? 'bg-white text-indigo-600 border-gray-200 shadow-[0_-2px_10px_rgba(0,0,0,0.02)] z-10 scale-105 origin-bottom'
+                                        : 'bg-gray-50 text-gray-400 border-transparent hover:bg-gray-100'
+                                        }`}
+                                >
+                                    <Users size={16} />
+                                    EQUIPE
                                 </button>
                                 {/* Bottom border filler */}
                                 <div className="flex-1 border-b border-gray-200 h-px"></div>
@@ -1784,6 +1896,18 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
                                     </div>
                                 );
                             })()}
+
+                            {ganttTab === 'team' && (() => {
+                                const activeProject = projects.find(p => p.id === selectedProjectId);
+                                if (!activeProject) return null;
+                                return (
+                                    <ProjectTeamTab
+                                        project={activeProject}
+                                        tasks={projectTasks}
+                                        onUpdateTeam={handleUpdateTeam}
+                                    />
+                                );
+                            })()}
                         </>
                     )}
 
@@ -1853,17 +1977,20 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
                 }}
             />
 
-            {isTaskModalOpen && (
-                <TaskForm
-                    task={editingTask}
-                    forceLandscape={isGanttLandscape}
-                    allTasks={tasks}
-                    resources={resources}
-                    onSave={handleSaveTask}
-                    onCancel={() => setIsTaskModalOpen(false)}
-                    onSplit={handleSplitTask}
-                />
-            )}
+            {
+                isTaskModalOpen && (
+                    <TaskForm
+                        task={editingTask}
+                        forceLandscape={isGanttLandscape}
+                        allTasks={tasks}
+                        projectTeam={projects.find(p => p.id === selectedProjectId)?.teamStructure}
+                        resources={resources}
+                        onSave={handleSaveTask}
+                        onCancel={() => setIsTaskModalOpen(false)}
+                        onSplit={handleSplitTask}
+                    />
+                )
+            }
             <EstimateModal
                 isOpen={isEstimateModalOpen}
                 onClose={() => setIsEstimateModalOpen(false)}
@@ -1871,7 +1998,7 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
                 clientContext={clients.find(c => c.id === selectedClientId)?.context}
                 knowledgeBase={clientKnowledge}
             />
-        </div>
+        </div >
     );
 }
 
