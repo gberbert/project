@@ -880,7 +880,7 @@ export const SettingsView = () => {
 
         setTemplateConfig(prev => ({
             ...prev,
-            slides: prev.slides.map(s => s.id === editingSlide.id ? { ...s, overlays } : s),
+            slides: prev.slides.map(s => s.id === editingSlide ? { ...s, overlays } : s),
             branding: updatedBranding ? { ...prev.branding, ...updatedBranding } : prev.branding
         }));
         setEditingSlide(null);
@@ -1016,6 +1016,8 @@ export const SettingsView = () => {
     const { getRootProps: getLogoProps, getInputProps: getLogoInput, isDragActive: isLogoDrag } = useDropzone({
         onDrop: (f) => handleBrandingUpload('logo', f), accept: { 'image/*': [] }, maxFiles: 1
     });
+
+    const editingSlideObj = editingSlide ? templateConfig.slides.find(s => s.id === editingSlide) : null;
 
     return (
         <div className="w-full h-full flex flex-col bg-gray-50/30">
@@ -1347,7 +1349,7 @@ export const SettingsView = () => {
                                                         key={slide.id}
                                                         slide={slide}
                                                         onDelete={(id) => handleDeleteSlide(id, slide.imageId)}
-                                                        onEdit={() => setEditingSlide(slide)}
+                                                        onEdit={() => setEditingSlide(slide.id)}
                                                         preview={slidePreviews[slide.id]}
                                                     />
                                                 ))}
@@ -1535,10 +1537,11 @@ export const SettingsView = () => {
             </div>
 
             {/* Overlay Editor Modal */}
-            {editingSlide && (
+            {/* Overlay Editor Modal */}
+            {editingSlideObj && (
                 <SlideOverlayEditor
-                    slide={editingSlide}
-                    preview={slidePreviews[editingSlide.id]}
+                    slide={editingSlideObj}
+                    preview={slidePreviews[editingSlideObj.id]}
                     branding={templateConfig.branding}
                     logoPreview={logoPreview}
                     onClose={() => setEditingSlide(null)}

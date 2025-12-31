@@ -1632,7 +1632,7 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
                                                         const finalKeys = [...orderedKeys, ...otherKeys];
 
                                                         return finalKeys.map((key) => {
-                                                            const content = activeProject.documentation[key];
+                                                            const content = activeProject.documentation ? activeProject.documentation[key] : '';
                                                             const title = key.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
 
                                                             let styleClass = "border-gray-100";

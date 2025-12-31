@@ -269,9 +269,10 @@ export const generateProposalPpt = async (project: Project, options: GenerationO
             const orderedKeys = DOC_ORDER.filter(key => existingKeys.includes(key));
             const otherKeys = existingKeys.filter(key => !DOC_ORDER.includes(key));
             const finalKeys = [...orderedKeys, ...otherKeys];
+            const docs = project.documentation;
 
             finalKeys.forEach((key) => {
-                const content = project.documentation[key as keyof typeof project.documentation];
+                const content = docs ? docs[key as keyof typeof docs] : undefined;
                 if (!content || (content as string).trim().length === 0) return;
 
                 // Skip Context Overview if used in custom slide
