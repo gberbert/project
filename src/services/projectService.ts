@@ -161,6 +161,7 @@ export const ProjectService = {
 
     addTask: async (task: Partial<Task>) => {
         const cleanTask = sanitizeData(task);
+
         if (cleanTask.id) {
             const taskRef = doc(db, TASKS_COL, cleanTask.id);
             await setDoc(taskRef, cleanTask);
@@ -226,6 +227,7 @@ export const ProjectService = {
                     ...task,
                     projectId // Limit to project
                 };
+
                 batch.set(taskRef, sanitizeData(data));
 
                 if (task.type !== 'project' && task.start && task.end) {

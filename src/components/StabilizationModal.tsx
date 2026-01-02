@@ -17,11 +17,20 @@ interface Issue {
     type: 'delayed' | 'not_started' | 'lagging';
     description: string;
     currentProgress: number;
+    currentStart: Date;
     currentEnd: Date;
     // Proposed corrections
     newProgress: number;
     newEndDate: string; // YYYY-MM-DD for input
-    action: 'keep' | 'update_progress' | 'reschedule' | 'complete';
+    customRealStartDate?: string;
+    customRealEndDate?: string;
+    action: 'keep' | 'update_progress' | 'reschedule' | 'complete' | 'complete_on_time' | 'complete_custom' | 'blocked_by_client' | 'unblock_client';
+    // Blockage specific
+    isBlocked: boolean;
+    activeBlockageStart?: Date; // Added for validation
+    blockageStartDate?: string;
+    blockageEndDate?: string; // Added for retroactive unblock
+    blockageReason?: string;
 }
 
 export const StabilizationModal = ({ isOpen, onClose, tasks, onUpdateTasks }: StabilizationModalProps) => {
@@ -37,70 +46,64 @@ export const StabilizationModal = ({ isOpen, onClose, tasks, onUpdateTasks }: St
         tasks.forEach(task => {
             if (task.type === 'project') return; // Skip groups
 
-            const start = startOfDay(task.start);
-            const end = startOfDay(task.end);
+            const parseDate = (d: any) => {
+                if (!d) return new Date();
+                if (d instanceof Date) return d;
+                if (typeof d.toDate === 'function') return d.toDate();
+                return new Date(d);
+            }
+
+            const start = startOfDay(parseDate(task.start));
+            const end = startOfDay(parseDate(task.end));
             const progress = task.progress || 0;
+            const currentBlockage = task.clientBlockages?.find(b => !b.end);
+            const isBlocked = !!currentBlockage;
 
             // 1. COMPLETED? Skip
             if (progress === 100) return;
 
-            // 2. CHECK: DELAYED (End Date passed)
-            if (isBefore(end, today)) {
-                detectedIssues.push({
-                    taskId: task.id,
-                    taskName: task.name,
-                    type: 'delayed',
-                    description: `Deveria ter terminado em ${format(end, 'dd/MM')}.`,
-                    currentProgress: progress,
-                    currentEnd: task.end,
-                    newProgress: progress,
-                    newEndDate: format(new Date(), 'yyyy-MM-dd'), // Default reschedule to today
-                    action: 'keep' // User decides
-                });
-                return;
-            }
-
-            // 3. CHECK: NOT STARTED (Start Date passed, Progress 0)
-            if (isBefore(start, today) && progress === 0) {
-                detectedIssues.push({
-                    taskId: task.id,
-                    taskName: task.name,
-                    type: 'not_started',
-                    description: `Deveria ter iniciado em ${format(start, 'dd/MM')}.`,
-                    currentProgress: 0,
-                    currentEnd: task.end,
-                    newProgress: 0,
-                    newEndDate: format(task.end, 'yyyy-MM-dd'),
-                    action: 'keep'
-                });
-                return;
-            }
-
-            // 4. CHECK: LAGGING (Start < Today < End, but Progress mismatch)
-            // If we are 50% through the timeline, expected progress should be arguably > 25%?
-            // Simple heuristic: If > 5 days passed and still 0%?
-            // Let's stick to the user request: "pra tras toda evolucao pendente".
-            // If today > start, enable updating progress.
+            // Common Expected Calc
+            let expected = 0;
             if (isBefore(start, today)) {
-                // Calculate expected linear progress
                 const totalDays = Math.max(1, differenceInBusinessDays(end, start));
                 const elapsed = Math.max(0, differenceInBusinessDays(today, start));
-                const expected = Math.min(100, Math.round((elapsed / totalDays) * 100));
+                expected = Math.min(100, Math.round((elapsed / totalDays) * 100));
+            }
 
-                // If actual is significantly behind expected (e.g. > 20% diff)
-                if (expected - progress > 20) {
-                    detectedIssues.push({
-                        taskId: task.id,
-                        taskName: task.name,
-                        type: 'lagging',
-                        description: `Ritmo lento. Esperado ~${expected}% (Decorridos ${elapsed}/${totalDays} dias).`,
-                        currentProgress: progress,
-                        currentEnd: task.end,
-                        newProgress: progress, // Let user set it
-                        newEndDate: format(task.end, 'yyyy-MM-dd'),
-                        action: 'keep'
-                    });
-                }
+            // Detect Issues
+            let type: Issue['type'] | null = null;
+            let description = '';
+
+            if (isBefore(end, today)) {
+                type = 'delayed';
+                description = `Deveria ter terminado em ${format(end, 'dd/MM')}. Deveria estar em 100%.`;
+            } else if (isBefore(start, today) && progress === 0) {
+                type = 'not_started';
+                description = `Deveria ter iniciado em ${format(start, 'dd/MM')}. Deveria estar em ${expected}%.`;
+            } else if (isBefore(start, today) && (expected - progress > 20)) {
+                type = 'lagging';
+                description = `Ritmo lento. Esperado ~${expected}% (Decorridos ${Math.max(0, differenceInBusinessDays(today, start))}/${Math.max(1, differenceInBusinessDays(end, start))} dias).`;
+            }
+
+            if (type || isBlocked) {
+                // If blocked, we allow showing it even if not strictly "delayed" (or maybe user wants to unblock it)
+                // But generally blocking happens *because* of delay or causes it.
+                // If it's blocked, we definitely show it.
+                detectedIssues.push({
+                    taskId: task.id,
+                    taskName: task.name,
+                    type: type || 'delayed', // Default to delayed if just blocked but weird state? Actually likely delayed.
+                    description: type ? description : 'Tarefa Bloqueada pelo Cliente.',
+                    currentProgress: progress,
+                    currentStart: task.start,
+                    currentEnd: task.end,
+                    newProgress: progress,
+                    newEndDate: format(new Date(), 'yyyy-MM-dd'),
+                    action: 'keep',
+                    isBlocked: isBlocked,
+                    activeBlockageStart: currentBlockage ? parseDate(currentBlockage.start) : undefined,
+                    blockageReason: ''
+                });
             }
         });
 
@@ -111,18 +114,23 @@ export const StabilizationModal = ({ isOpen, onClose, tasks, onUpdateTasks }: St
         const copy = [...issues];
         copy[index].action = action;
 
-        // Defaults when switching actions
-        if (action === 'complete') {
+        // Defaults
+        if (action === 'complete' || action === 'complete_on_time' || action === 'complete_custom') {
             copy[index].newProgress = 100;
-        } else if (action === 'reschedule') {
-            // Suggest extending by pending duration? 
-            // Default is set to Today in init, which acts as "move remainder to start today" logic effectively if using gantt logic, 
-            // but here we are just changing End Date.
-            // Let's set it to Today + Remaining Duration
-            const taskStart = tasks.find(t => t.id === copy[index].taskId)?.start || new Date();
-            // Actually, if delayed, we usually want to extend FROM TODAY.
-            // Let's just default to Today for "finish now" or let them pick.
-            // Init already sets it to today.
+        }
+
+        if (action === 'complete_custom') {
+            const task = tasks.find(t => t.id === copy[index].taskId);
+            copy[index].customRealStartDate = copy[index].customRealStartDate || (task ? format(task.start, 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'));
+            copy[index].customRealEndDate = copy[index].customRealEndDate || format(new Date(), 'yyyy-MM-dd');
+        }
+
+        if (action === 'blocked_by_client') {
+            copy[index].blockageStartDate = format(new Date(), 'yyyy-MM-dd');
+        }
+
+        if (action === 'unblock_client') {
+            copy[index].blockageEndDate = format(new Date(), 'yyyy-MM-dd');
         }
 
         setIssues(copy);
@@ -131,7 +139,7 @@ export const StabilizationModal = ({ isOpen, onClose, tasks, onUpdateTasks }: St
     const updateIssue = (index: number, field: keyof Issue, value: any) => {
         const copy = [...issues];
         (copy[index] as any)[field] = value;
-        // If editing values, auto-select appropriate action
+
         if (field === 'newProgress' && value !== copy[index].currentProgress) {
             if (value === 100) copy[index].action = 'complete';
             else copy[index].action = 'update_progress';
@@ -150,23 +158,62 @@ export const StabilizationModal = ({ isOpen, onClose, tasks, onUpdateTasks }: St
             if (issue.action === 'keep') return;
 
             const change: Partial<Task> = {};
+            const task = tasks.find(t => t.id === issue.taskId);
 
-            if (issue.action === 'complete') {
+            if (issue.action === 'blocked_by_client') {
+                let blockageDate = new Date();
+                if (issue.blockageStartDate) {
+                    const [y, m, d] = issue.blockageStartDate.split('-').map(Number);
+                    blockageDate = new Date(y, m - 1, d, 12, 0, 0);
+                }
+
+                const newBlockage = {
+                    id: crypto.randomUUID(),
+                    start: blockageDate,
+                    reason: issue.blockageReason || 'Motivo não especificado'
+                };
+                change.clientBlockages = [...(task?.clientBlockages || []), newBlockage];
+            }
+            else if (issue.action === 'unblock_client') {
+                let unblockDate = new Date();
+                if (issue.blockageEndDate) {
+                    const [y, m, d] = issue.blockageEndDate.split('-').map(Number);
+                    unblockDate = new Date(y, m - 1, d, 12, 0, 0);
+                }
+
+                change.clientBlockages = task?.clientBlockages?.map(b =>
+                    (!b.end) ? { ...b, end: unblockDate } : b
+                );
+            }
+            else if (issue.action === 'complete') {
                 change.progress = 100;
-                // Optional: Set End Date to Today if it was delayed? 
-                // No, just mark done.
+            }
+            else if (issue.action === 'complete_on_time') {
+                change.progress = 100;
+                if (task) {
+                    change.realStart = task.start;
+                    change.realEnd = task.end;
+                }
+            }
+            else if (issue.action === 'complete_custom') {
+                change.progress = 100;
+                if (issue.customRealStartDate) {
+                    const [y, m, d] = issue.customRealStartDate.split('-').map(Number);
+                    change.realStart = new Date(y, m - 1, d, 12, 0, 0);
+                }
+                if (issue.customRealEndDate) {
+                    const [y, m, d] = issue.customRealEndDate.split('-').map(Number);
+                    change.realEnd = new Date(y, m - 1, d, 18, 0, 0);
+                }
             }
             else if (issue.action === 'update_progress') {
                 change.progress = Math.min(100, Math.max(0, issue.newProgress));
             }
             else if (issue.action === 'reschedule') {
-                // Parse new date
                 const [y, m, d] = issue.newEndDate.split('-').map(Number);
-                const newEnd = new Date(y, m - 1, d, 18, 0, 0); // End of day
+                const newEnd = new Date(y, m - 1, d, 18, 0, 0);
                 if (isValid(newEnd)) {
                     change.end = newEnd;
-                    // If rescheduling a delayed task, we might want to check start date? 
-                    // Assuming Gantt chart logic (push) isn't running automatically here, just updating dates.
                 }
             }
 
@@ -224,12 +271,23 @@ export const StabilizationModal = ({ isOpen, onClose, tasks, onUpdateTasks }: St
                                                     }`}>
                                                     {issue.type === 'delayed' ? 'Atrasada' : issue.type === 'not_started' ? 'Não Iniciou' : 'Defasada'}
                                                 </span>
+                                                {issue.isBlocked && (
+                                                    <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-red-600 text-white animate-pulse">
+                                                        BLOQUEADO PELO CLIENTE
+                                                    </span>
+                                                )}
                                                 <h4 className="font-bold text-gray-900">{issue.taskName}</h4>
                                             </div>
                                             <p className="text-sm text-gray-500">{issue.description}</p>
                                             <div className="text-xs text-gray-400 mt-2 flex gap-4">
                                                 <span>Progress Atual: <b>{issue.currentProgress}%</b></span>
                                                 <span>Fim Previsto: <b>{format(issue.currentEnd, 'dd/MM/yyyy')}</b></span>
+                                                {issue.isBlocked && issue.activeBlockageStart && (
+                                                    <span className="text-red-400 flex items-center gap-1">
+                                                        <Calendar size={10} />
+                                                        Bloqueado em: {format(new Date(issue.activeBlockageStart), 'dd/MM/yyyy')}
+                                                    </span>
+                                                )}
                                             </div>
                                         </div>
 
@@ -252,32 +310,114 @@ export const StabilizationModal = ({ isOpen, onClose, tasks, onUpdateTasks }: St
                                                     >
                                                         Reprogramar
                                                     </button>
-                                                    <button
-                                                        onClick={() => handleActionChange(idx, 'keep')}
-                                                        className={`px-3 py-1.5 text-xs font-medium rounded border transition-colors ${issue.action === 'keep' ? 'bg-gray-200 text-gray-700 border-gray-300' : 'bg-white text-gray-400 border-gray-200 hover:text-gray-600'}`}
-                                                    >
-                                                        Ignorar
-                                                    </button>
-                                                    <button
-                                                        onClick={() => handleActionChange(idx, 'complete')}
-                                                        className={`w-full px-3 py-1.5 text-xs font-medium rounded border transition-colors ${issue.action === 'complete' ? 'bg-green-100 text-green-700 border-green-200' : 'bg-white text-gray-600 border-gray-200 hover:border-green-300'}`}
-                                                    >
-                                                        Concluir
-                                                    </button>
+
+                                                    {issue.isBlocked ? (
+                                                        <button
+                                                            onClick={() => handleActionChange(idx, 'unblock_client')}
+                                                            className={`px-3 py-1.5 text-xs font-medium rounded border transition-colors border-red-200 text-red-700 bg-red-50 hover:bg-red-100 ${issue.action === 'unblock_client' ? 'ring-2 ring-red-400' : ''}`}
+                                                        >
+                                                            Desbloqueio pelo cliente
+                                                        </button>
+                                                    ) : (
+                                                        <button
+                                                            onClick={() => handleActionChange(idx, 'blocked_by_client')}
+                                                            className={`px-3 py-1.5 text-xs font-medium rounded border transition-colors border-red-200 text-red-600 hover:bg-red-50 ${issue.action === 'blocked_by_client' ? 'bg-red-100 font-bold' : 'bg-white'}`}
+                                                        >
+                                                            Bloqueado pelo cliente
+                                                        </button>
+                                                    )}
+
+                                                    <div className="flex gap-1 w-full">
+                                                        <button
+                                                            onClick={() => handleActionChange(idx, 'complete_custom')}
+                                                            className={`flex-1 px-3 py-1.5 text-xs font-medium rounded border transition-colors ${issue.action === 'complete_custom' ? 'bg-indigo-100 text-indigo-700 border-indigo-200' : 'bg-white text-gray-600 border-gray-200 hover:border-indigo-300'}`}
+                                                        >
+                                                            Conc. Atraso/Ant.
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleActionChange(idx, 'complete_on_time')}
+                                                            className={`flex-1 px-3 py-1.5 text-xs font-medium rounded border transition-colors ${issue.action === 'complete_on_time' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-white text-gray-600 border-gray-200 hover:border-emerald-300'}`}
+                                                        >
+                                                            Conc. Prazo
+                                                        </button>
+                                                    </div>
                                                 </div>
                                             </div>
 
                                             {/* Dynamic Inputs */}
                                             <div className="w-[180px] border-l border-gray-200 pl-6 flex flex-col justify-center">
-                                                {issue.action === 'complete' && (
+                                                {(issue.action === 'complete_on_time') && (
                                                     <div className="flex items-center gap-2 text-green-600 font-bold text-sm">
-                                                        <CheckCircle size={16} /> Será 100%
+                                                        <CheckCircle size={16} /> Será 100% (No Prazo)
                                                     </div>
                                                 )}
 
-                                                {issue.action === 'keep' && (
-                                                    <div className="text-xs text-gray-400 italic text-center">
-                                                        Nenhuma alteração
+                                                {issue.action === 'blocked_by_client' && (
+                                                    <div className="flex flex-col gap-2">
+                                                        <div>
+                                                            <label className="text-[10px] font-bold text-red-500 uppercase block mb-1">Início do Bloqueio</label>
+                                                            <input
+                                                                type="date"
+                                                                value={issue.blockageStartDate}
+                                                                onChange={(e) => updateIssue(idx, 'blockageStartDate', e.target.value)}
+                                                                max={format(new Date(), 'yyyy-MM-dd')}
+                                                                min={format(issue.currentStart, 'yyyy-MM-dd')}
+                                                                className="w-full text-xs p-1 border border-red-200 rounded focus:border-red-500 outline-none font-medium text-red-700"
+                                                                required
+                                                            />
+                                                        </div>
+                                                        <div>
+                                                            <label className="text-[10px] font-bold text-red-500 uppercase block mb-1">Motivo</label>
+                                                            <textarea
+                                                                value={issue.blockageReason}
+                                                                onChange={(e) => updateIssue(idx, 'blockageReason', e.target.value)}
+                                                                className="w-full text-xs p-2 border border-red-200 rounded focus:border-red-500 outline-none bg-red-50 resize-none h-14"
+                                                                placeholder="Descreva o motivo..."
+                                                            ></textarea>
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {issue.action === 'unblock_client' && (
+                                                    <div className="flex flex-col gap-2">
+                                                        <label className="text-[10px] font-bold text-green-600 uppercase block mb-1">Data de Desbloqueio</label>
+                                                        <input
+                                                            type="date"
+                                                            value={issue.blockageEndDate}
+                                                            onChange={(e) => updateIssue(idx, 'blockageEndDate', e.target.value)}
+                                                            max={format(new Date(), 'yyyy-MM-dd')}
+                                                            min={issue.activeBlockageStart ? format(new Date(issue.activeBlockageStart), 'yyyy-MM-dd') : undefined}
+                                                            className="w-full text-xs p-1 border border-green-200 rounded focus:border-green-500 outline-none font-medium text-green-700"
+                                                            required
+                                                        />
+                                                        <div className="text-[10px] text-green-500 font-medium">
+                                                            Contador será interrompido na data acima.
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {issue.action === 'complete_custom' && (
+                                                    <div className="flex flex-col gap-2">
+                                                        <div>
+                                                            <label className="text-[10px] font-bold text-gray-400 uppercase block mb-0.5">Início Real</label>
+                                                            <input
+                                                                type="date"
+                                                                value={issue.customRealStartDate}
+                                                                onChange={(e) => updateIssue(idx, 'customRealStartDate', e.target.value)}
+                                                                className="w-full text-xs p-1 border border-indigo-200 rounded focus:border-indigo-500 outline-none"
+                                                                required
+                                                            />
+                                                        </div>
+                                                        <div>
+                                                            <label className="text-[10px] font-bold text-gray-400 uppercase block mb-0.5">Fim Real</label>
+                                                            <input
+                                                                type="date"
+                                                                value={issue.customRealEndDate}
+                                                                onChange={(e) => updateIssue(idx, 'customRealEndDate', e.target.value)}
+                                                                className="w-full text-xs p-1 border border-indigo-200 rounded focus:border-indigo-500 outline-none"
+                                                                required
+                                                            />
+                                                        </div>
                                                     </div>
                                                 )}
 

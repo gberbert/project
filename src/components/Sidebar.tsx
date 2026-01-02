@@ -103,50 +103,22 @@ export const Sidebar = ({ activeView, onNavigate, className = '', clients = [], 
     const [isCollapsed, setIsCollapsed] = useState(false);
 
     const menuStructure = useMemo<MenuItem[]>(() => {
-        // 1. Dynamic Client Trees
-        const clientTrees: MenuItem[] = clients.map(client => {
-            // Find projects for this client
-            const clientProjects = projects.filter(p => p.clientId === client.id);
-
-            // Create menu items for each project
-            const projectItems: MenuItem[] = clientProjects.map(project => ({
-                label: project.name,
-                icon: Folder,
-                children: [
-                    { id: `project_${project.id}_dashboard`, icon: LayoutDashboard, label: 'Relatório Operacional' },
-                    { id: `project_${project.id}_gantt`, icon: Calendar, label: 'Relatório Tático-Gerencial' }
-                ]
-            }));
-
-            return {
-                label: client.name,
-                icon: Building2,
-                children: [
-                    { id: `client_${client.id}_reports`, icon: PieChart, label: 'Relatório Estratégico (Portfólio)' },
-                    { id: `client_${client.id}_my_projects`, icon: Settings, label: 'Gerenciar Projetos' },
-                    ...projectItems
-                ]
-            };
-        });
-
+        // 1. Static Client Menu
         const clientsFolder: MenuItem = {
             label: 'Clientes',
             icon: UserCircle,
-            // If any client or descendant is active, this folder will auto-expand via component logic
             children: [
                 {
                     label: 'Visão Geral / Gerenciar',
                     id: 'clients_manage',
                     icon: Settings
-                },
-                ...clientTrees
+                }
             ]
         }
 
         // 2. Main Menu Structure
         return [
-            clientsFolder,
-            { id: 'team', icon: Users, label: 'Equipe' },
+            clientsFolder
         ];
     }, [clients, projects]);
 

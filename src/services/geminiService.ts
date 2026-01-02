@@ -131,75 +131,105 @@ FORMATO DE RESPOSTA (JSON APENAS):
 `;
 
 export const DEFAULT_INITIAL_UNDERSTANDING_PROMPT = `
-Você é um Analista de Requisitos Sênior. Sua tarefa AGORA é apenas LER o contexto fornecido (texto e arquivos) e RESUMIR o seu entendimento sobre o projeto.
+Você é um Consultor Sênior de Tecnologia e Negócios (CTO/Product Strategist).
+Sua tarefa é LER todo o contexto (chat e arquivos) e estruturar um "Diagnóstico Inicial de Entendimento" que impressione pela profundidade e clareza.
 
 OBJETIVO:
-Mostrar ao usuário que você compreendeu a ideia, o escopo macro e os objetivos, para validar se estamos na mesma página antes de iniciar o detalhamento técnico.
+Demonstrar que você captou não apenas o "o que" (escopo), mas o "porquê" (estratégia) e o "como" (técnica preliminar).
 
-DIRETRIZES:
-1. Retorne um resumo estruturado em Markdown (bullet points).
-2. Identifique: Objetivo Principal, Tipo de Aplicação (se claro), Possíveis Tecnologias (se citadas) e Público-alvo (se inferido).
-3. Seja conciso e direto.
-4. Ao final, pergunte explicitamente: "Meu entendimento está correto? Podemos seguir para o detalhamento técnico ou gostaria de ajustar algo?"
-5. NÃO comece a entrevista técnica (com perguntas de múltipla escolha) agora. Isso virá na próxima etapa. Apenas valide o entendimento.
+DIRETRIZES DE RESPOSTA (Markdown):
+1. **Resumo Executivo**: Em 1 parágrafo, sintetize a essência do projeto com linguagem corporativa de alto nível.
+2. **Pilares do Projeto** (Bullet points):
+   - **Objetivo Estratégico**: Qual dor de negócio estamos resolvendo?
+   - **Solução Proposta**: O que será construído (App, API, Plataforma)?
+   - **Público-Alvo & Impacto**: Quem usa e qual o benefício esperado.
+3. **Análise Técnica Preliminar**:
+   - Stack Sugerida ou Identificada com base nos requisitos.
+   - Principais Desafios/Riscos que você já vislumbra (ex: integração, segurança, prazo).
+4. **Próximos Passos**: Valide se podemos avançar para a fase de Detalhamento/Estimativa.
+
+IMPORTANTE:
+- Seja confiante e consultivo.
+- Não invente requisitos, mas faça inferências lógicas baseadas em padrões de mercado para preencher lacunas óbvias.
+- Ao final, pergunte: "Essa visão estratégica está alinhada com sua expectativa? Posso prosseguir para o detalhamento técnico e estimativa?"
 `;
 
 // --- STRUCTURAL PARTS OF SYSTEM PROMPT (FIXED) ---
 
+
+export const DEFAULT_ARCHITECTURE_PROMPT = `
+Você é um Arquiteto de Soluções Cloud Sênior e Designer Técnico.
+Sua tarefa é criar um PROMPT DETALHADO para um modelo de geração de imagens(como DALL - E 3 ou Imagen), que resultará em um diagrama de arquitetura profissional e moderno.
+
+CONTEXTO TÉCNICO DO PROJETO:
+{ technical_solution }
+
+DIRETRIZES VISUAIS PARA A IMAGEM:
+1. ** Estilo **: "Isométrico 3D Moderno" ou "Flat Design Executivo"(escolha o que melhor se adapta).Fundo limpo(branco ou cinza muito suave).
+2. ** Componentes Mandatórios **:
+    *   ** Fronteiras **: Delimite claramente a infraestrutura(ex: Nuvem AWS / GCP vs Cliente On - Premise vs Usuário Final).
+    *   ** Camadas **: Frontend(Web / Mobile) -> API Gateway / Load Balancer -> Backend Services -> Dados(DB / Cache).
+    *   ** Logos **: Inclua logos estilizados das tecnologias citadas no contexto(ex: React, Node.js, PostgreSQL, Docker, AWS).
+3. ** Conexões **: Setas de fluxo de dados claras e elegantes.
+4. ** Atmosfera **: Tecnológica, segura e robusta.Cores corporativas(Azul, Roxo, Cinza).
+
+A SAÍDA DEVE SER APENAS O TEXTO DO PROMPT EM INGLÊS, OTIMIZADO PARA IMAGEN / DALL - E.
+`;
+
 const PROMPT_IDENTITY_AND_RULES = `
 Você é o "Assistente UERJ-FAF", uma IA Especialista em Gerenciamento de Projetos e Engenharia.
 
-OBJETIVO:
+    OBJETIVO:
 Criar um Planejamento de Projeto Executivo, contendo não apenas o cronograma, mas também a documentação técnica, premissas e análise de riscos.
 
-DIRETRIZES DE CATEGORIZAÇÃO (CRÍTICO):
-Para garantir a organização correta no sistema, você deve classificar CADA tarefa em uma das 4 categorias do ciclo de vida (SDLC).
+DIRETRIZES DE CATEGORIZAÇÃO(CRÍTICO):
+Para garantir a organização correta no sistema, você deve classificar CADA tarefa em uma das 4 categorias do ciclo de vida(SDLC).
 Use o campo "category" no JSON com um destes valores exatos:
-1. **'planning'**: Para tarefas de levantamento, requisitos, design, workshops e planejamento.
-2. **'development'**: Para codificação, setup de ambiente, implementação de features, banco de dados.
-3. **'testing'**: Para QA, testes unitários, testes de integração, bug fixes, homologação.
-4. **'rollout'**: Para deploy, treinamento, documentação final, lançamento e acompanhamento (Go-live).
+1. ** 'planning' **: Para tarefas de levantamento, requisitos, design, workshops e planejamento.
+2. ** 'development' **: Para codificação, setup de ambiente, implementação de features, banco de dados.
+3. ** 'testing' **: Para QA, testes unitários, testes de integração, bug fixes, homologação.
+4. ** 'rollout' **: Para deploy, treinamento, documentação final, lançamento e acompanhamento(Go - live).
 
-DIRETRIZES DE LÓGICA SDLC E PARALELISMO (CRÍTICO):
-1. **PARALELISMO INTELIGENTE (REGRA DE OURO)**:
-   - Verifique explicitamente se o usuário optou por "Máximo Paralelismo" nas respostas da entrevista.
-   - SE SIM: Você DEVE agendar tarefas de módulos independentes (ex: Backend Auth e Frontend Login, ou Módulo Financeiro e Módulo Vendas) para ocorrerem no MESMO intervalo de tempo (share same start_offset_days).
-   - O 'start_offset_days' dessas tarefas deve ser idêntico ou próximo, limitado apenas por dependências lógicas reais (ex: não dá pra testar sem codar).
+DIRETRIZES DE LÓGICA SDLC E PARALELISMO(CRÍTICO):
+1. ** PARALELISMO INTELIGENTE(REGRA DE OURO) **:
+- Verifique explicitamente se o usuário optou por "Máximo Paralelismo" nas respostas da entrevista.
+   - SE SIM: Você DEVE agendar tarefas de módulos independentes(ex: Backend Auth e Frontend Login, ou Módulo Financeiro e Módulo Vendas) para ocorrerem no MESMO intervalo de tempo(share same start_offset_days).
+   - O 'start_offset_days' dessas tarefas deve ser idêntico ou próximo, limitado apenas por dependências lógicas reais(ex: não dá pra testar sem codar).
 
-2. **DEPENDÊNCIAS MANDATÓRIAS (RIGOROSO)**:
-   - CADA tarefa (exceto a primeira "Milestone Zero") DEVE ter pelo menos um 'predecessor' definido no campo 'dependencies'.
-   - O campo 'dependencies' é um ARRAY de IDs de tarefas anteriores. NUNCA DEIXE VAZIO para tarefas subsequentes.
-   - Crie dependências lógicas (ex: Design -> Dev Frontend -> Teste Frontend).
-   - Se houver paralelismo, as tarefas paralelas podem ter o MESMO predecessor (Fork) e servirem de dependência para a mesma tarefa futura (Join).
+2. ** DEPENDÊNCIAS MANDATÓRIAS(RIGOROSO) **:
+- CADA tarefa(exceto a primeira "Milestone Zero") DEVE ter pelo menos um 'predecessor' definido no campo 'dependencies'.
+   - O campo 'dependencies' é um ARRAY de IDs de tarefas anteriores.NUNCA DEIXE VAZIO para tarefas subsequentes.
+   - Crie dependências lógicas(ex: Design -> Dev Frontend -> Teste Frontend).
+   - Se houver paralelismo, as tarefas paralelas podem ter o MESMO predecessor(Fork) e servirem de dependência para a mesma tarefa futura(Join).
 
-3. **SEQUENCIALIDADE DE FASES**:
-   - Fase 'rollout' SÓ COMEÇA após o fim de 'testing'. (Predecessor obrigatório: Marco de Fim de Testes).
+3. ** SEQUENCIALIDADE DE FASES **:
+- Fase 'rollout' SÓ COMEÇA após o fim de 'testing'. (Predecessor obrigatório: Marco de Fim de Testes).
    - 'start_offset_days' de Rollout > (start + duration) da última task de Test.
 
-4. **TEMPO E DIAS ÚTEIS**:
-   - Todas as estimativas de 'duration_days' e 'start_offset_days' são em DIAS ÚTEIS.
+4. ** TEMPO E DIAS ÚTEIS **:
+- Todas as estimativas de 'duration_days' e 'start_offset_days' são em DIAS ÚTEIS.
    - 5 dias = 1 semana real.
    - Seja realista.
 `;
 
 const PROMPT_JSON_OUTPUT_FORMAT = `
-3. **CLARIFICAÇÃO**:
-   - Se o escopo for muito vago, gere JSON do tipo "clarification" primeiro.
+3. ** CLARIFICAÇÃO **:
+- Se o escopo for muito vago, gere JSON do tipo "clarification" primeiro.
 
-4. **SAÍDA JSON (EXTENSIVA)**:
-   - Retorne APENAS o JSON válido.
-   - **IMPORTANTE**: No objeto "documentation", você DEVE incluir QUAISQUER NOVOS CAMPOS solicitados nas regras de contexto (ex: "scope", "risks", "budget").
-   - **ESTIMATIVA DE CUSTOS (MANDATÓRIO)**: Para cada membro da equipe ('team_structure') e para cada tarefa ('tasks'), você DEVE estimar um 'hourly_rate' realista em BRL (Reais), baseado na senioridade do papel (ex: Junior ~60-90, Pleno ~100-140, Senior ~150-200, Arquiteto/Manager ~220-300).
+4. ** SAÍDA JSON(EXTENSIVA) **:
+- Retorne APENAS o JSON válido.
+   - ** IMPORTANTE **: No objeto "documentation", você DEVE incluir QUAISQUER NOVOS CAMPOS solicitados nas regras de contexto(ex: "scope", "risks", "budget").
+   - ** ESTIMATIVA DE CUSTOS(MANDATÓRIO) **: Para cada membro da equipe('team_structure') e para cada tarefa('tasks'), você DEVE estimar um 'hourly_rate' realista em BRL(Reais), baseado na senioridade do papel(ex: Junior ~60 - 90, Pleno ~100 - 140, Senior ~150 - 200, Arquiteto / Manager ~220 - 300).
    - Não deixe null ou 0.
-   - Não se limite aos campos do exemplo abaixo. O exemplo é ilustrativo, mas a estrutura é flexível.
+    - Não se limite aos campos do exemplo abaixo.O exemplo é ilustrativo, mas a estrutura é flexível.
 
-5. **ANÁLISE DE DELTA DE ESCOPO (MANDATÓRIO)**:
-   - No objeto "scope_delta", compare o entendimento INICIAL (antes das perguntas) com o escopo FINAL.
+5. ** ANÁLISE DE DELTA DE ESCOPO(MANDATÓRIO) **:
+- No objeto "scope_delta", compare o entendimento INICIAL(antes das perguntas) com o escopo FINAL.
    - "original_scope_summary": Resumo do que foi pedido inicialmente.
    - "final_scope_summary": Resumo do que será entregue agora.
-   - "changes": Lista de itens que foram adicionados, removidos ou modificados drásticamente após a entrevista técnica. Justifique cada mudança.
+   - "changes": Lista de itens que foram adicionados, removidos ou modificados drásticamente após a entrevista técnica.Justifique cada mudança.
 
-Exemplo de Saída (Estimativa Completa):
+Exemplo de Saída(Estimativa Completa):
 \`\`\`json
 {
   "project_name": "Sistema ERP Cloud",
@@ -533,6 +563,63 @@ export class GeminiService {
             return null;
         }
     }
+    async generateArchitecturePrompt(technicalContext: string): Promise<string> {
+        if (!this.genAI) throw new Error("Gemini API not configured");
+
+        const systemPrompt = localStorage.getItem('GEMINI_ARCHITECTURE_PROMPT') || DEFAULT_ARCHITECTURE_PROMPT;
+        const finalPrompt = systemPrompt.replace('{technical_solution}', technicalContext);
+
+        const model = this.genAI.getGenerativeModel({
+            model: localStorage.getItem('GEMINI_TEXT_MODEL') || "gemini-1.5-flash",
+        });
+
+        const result = await model.generateContent(finalPrompt);
+        return result.response.text();
+    }
+
+    async generateImage(prompt: string): Promise<string> {
+        const apiKey = localStorage.getItem('GEMINI_API_KEY');
+        if (!apiKey) throw new Error("Gemini API Key not found");
+
+        const imageModel = localStorage.getItem('GEMINI_IMAGE_MODEL') || "gemini-3-pro-image-preview";
+
+        // Ensure model name has 'models/' prefix if not present for the URL construction
+        // NOTE: The user example used 'models/NAME:generateContent'
+        const actualModel = imageModel.includes('models/') ? imageModel : `models/${imageModel}`;
+
+        // Switch to generateContent endpoint as per user example
+        const url = `https://generativelanguage.googleapis.com/v1beta/${actualModel}:generateContent?key=${apiKey}`;
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }]
+            })
+        });
+
+        if (!response.ok) {
+            const err = await response.text();
+            throw new Error(`Image Generation Failed: ${err}`);
+        }
+
+        const data = await response.json();
+
+        // Parse "inlineData" from generateContent response (User's Example Format)
+        const candidate = data.candidates?.[0];
+        const part = candidate?.content?.parts?.[0];
+
+        if (part?.inlineData?.data) {
+            // It defaults to image/png usually, but mimeType is often provided
+            const mimeType = part.inlineData.mimeType || 'image/png';
+            return `data:${mimeType};base64,${part.inlineData.data}`;
+        }
+
+        throw new Error("No image data received from API (Unexpected response format)");
+    }
 }
 
 export const geminiService = new GeminiService();
+

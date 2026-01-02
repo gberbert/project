@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { AppUser } from '../types/auth';
-import { DEFAULT_CONTEXT_RULES, DEFAULT_INTERVIEWER_INSTRUCTION, DEFAULT_INITIAL_UNDERSTANDING_PROMPT, geminiService } from '../services/geminiService';
+import { DEFAULT_CONTEXT_RULES, DEFAULT_INTERVIEWER_INSTRUCTION, DEFAULT_INITIAL_UNDERSTANDING_PROMPT, DEFAULT_ARCHITECTURE_PROMPT, geminiService } from '../services/geminiService';
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -696,13 +696,14 @@ export const SettingsView = () => {
 
     // Model Config State
     const [textModel, setTextModel] = useState('gemini-1.5-flash');
-    const [imageModel, setImageModel] = useState('imagen-3');
+    const [imageModel, setImageModel] = useState('gemini-3-pro-image-preview');
 
     // Prompts State
     const [customContextRules, setCustomContextRules] = useState('');
     const [interviewerPrompt, setInterviewerPrompt] = useState('');
     const [initialPrompt, setInitialPrompt] = useState('');
-    const [activePromptTab, setActivePromptTab] = useState<'initial' | 'generation' | 'interviewer'>('initial');
+    const [architecturePrompt, setArchitecturePrompt] = useState('');
+    const [activePromptTab, setActivePromptTab] = useState<'initial' | 'generation' | 'interviewer' | 'architecture'>('initial');
 
     // Template & Users State
     const [templateConfig, setTemplateConfig] = useState<TemplateConfig>(DEFAULT_TEMPLATE_CONFIG);
@@ -728,6 +729,9 @@ export const SettingsView = () => {
         const storedInitial = localStorage.getItem('GEMINI_INITIAL_UNDERSTANDING_PROMPT');
         setInitialPrompt(storedInitial || DEFAULT_INITIAL_UNDERSTANDING_PROMPT);
 
+        const storedArchitecture = localStorage.getItem('GEMINI_ARCHITECTURE_PROMPT');
+        setArchitecturePrompt(storedArchitecture || DEFAULT_ARCHITECTURE_PROMPT);
+
         const storedTemplate = localStorage.getItem('PPT_TEMPLATE_CONFIG');
         if (storedTemplate) {
             try {
@@ -746,6 +750,23 @@ export const SettingsView = () => {
             }
         }
     }, []);
+
+    // Auto-save Prompts
+    useEffect(() => {
+        localStorage.setItem('GEMINI_CUSTOM_CONTEXT_RULES', customContextRules);
+    }, [customContextRules]);
+
+    useEffect(() => {
+        localStorage.setItem('GEMINI_INITIAL_UNDERSTANDING_PROMPT', initialPrompt);
+    }, [initialPrompt]);
+
+    useEffect(() => {
+        localStorage.setItem('GEMINI_INTERVIEWER_RULES', interviewerPrompt);
+    }, [interviewerPrompt]);
+
+    useEffect(() => {
+        localStorage.setItem('GEMINI_ARCHITECTURE_PROMPT', architecturePrompt);
+    }, [architecturePrompt]);
 
     // Auto-save Template Config changes
     useEffect(() => {
@@ -821,32 +842,36 @@ export const SettingsView = () => {
 
     const onDropSlide = useCallback(async (acceptedFiles: File[]) => {
         if (acceptedFiles.length === 0) return;
-        const file = acceptedFiles[0];
-        const id = `slide-${Date.now()}`;
-        const imageId = `img-${id}`;
 
-        try {
-            await saveImage(imageId, file);
-            const newSlide: SlideConfig = {
-                id,
-                type: 'custom',
-                name: file.name.replace(/\.[^/.]+$/, ""), // remove extension
-                imageId
-            };
-            setTemplateConfig(prev => ({
-                ...prev,
-                slides: [...prev.slides, newSlide]
-            }));
-        } catch (e) {
-            console.error(e);
-            alert("Erro ao salvar imagem do slide.");
+        // Handle all dropped files
+        for (const file of acceptedFiles) {
+            const id = `slide-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+            const imageId = `img-${id}`;
+
+            try {
+                await saveImage(imageId, file);
+                const newSlide: SlideConfig = {
+                    id,
+                    type: 'custom',
+                    name: file.name.replace(/\.[^/.]+$/, ""), // remove extension
+                    imageId
+                };
+                setTemplateConfig(prev => ({
+                    ...prev,
+                    slides: [...prev.slides, newSlide]
+                }));
+            } catch (e) {
+                console.error(e);
+                alert(`Erro ao salvar imagem do slide ${file.name}.`);
+            }
         }
     }, []);
 
     const { getRootProps: getSlideRootProps, getInputProps: getSlideInputProps } = useDropzone({
         onDrop: onDropSlide,
         accept: { 'image/*': [] },
-        maxFiles: 1
+        // maxFiles removed to allow multiple
+        multiple: true
     });
 
     const handleDeleteBranding = async (type: 'logo' | 'header' | 'footer') => {
@@ -1186,10 +1211,10 @@ export const SettingsView = () => {
                                                 type="text"
                                                 value={imageModel}
                                                 onChange={(e) => setImageModel(e.target.value)}
-                                                placeholder="ex: imagen-3"
+                                                placeholder="ex: gemini-3-pro-image-preview"
                                                 className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all font-mono text-sm bg-gray-50 focus:bg-white"
                                             />
-                                            <p className="text-[10px] text-gray-400 mt-1">Padrão: imagen-3</p>
+                                            <p className="text-[10px] text-gray-400 mt-1">Padrão: gemini-3-pro-image-preview</p>
                                         </div>
                                     </div>
                                 </div>
@@ -1393,6 +1418,12 @@ export const SettingsView = () => {
                                 >
                                     3. Documentação (Estimar)
                                 </button>
+                                <button
+                                    onClick={() => setActivePromptTab('architecture')}
+                                    className={`flex-1 py-3 px-4 text-sm font-bold transition-colors ${activePromptTab === 'architecture' ? 'border-b-2 border-indigo-600 text-indigo-700 bg-white' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'}`}
+                                >
+                                    4. Arquitetura (Imagem)
+                                </button>
                             </div>
 
                             {/* Prompt Header */}
@@ -1416,6 +1447,16 @@ export const SettingsView = () => {
                                             </h3>
                                             <p className="text-sm text-gray-500 mt-1">
                                                 Define a personalidade, regras de perguntas e algoritmo de confiança da entrevista.
+                                            </p>
+                                        </>
+                                    ) : activePromptTab === 'architecture' ? (
+                                        <>
+                                            <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                                                <ImageIcon size={20} className="text-indigo-600" />
+                                                Prompt de Arquitetura (Fase 4 - Visual)
+                                            </h3>
+                                            <p className="text-sm text-gray-500 mt-1">
+                                                Define como a IA deve instruir o modelo de imagem a gerar o diagrama de arquitetura.
                                             </p>
                                         </>
                                     ) : (
@@ -1468,6 +1509,19 @@ export const SettingsView = () => {
                                             [SISTEMA: Exemplo de Saída JSON] (Não editável)
                                         </div>
                                     </>
+                                ) : activePromptTab === 'architecture' ? (
+                                    <>
+                                        <div className="px-6 py-2 bg-indigo-100/50 border-b border-indigo-100 text-xs text-indigo-700 font-bold font-mono select-none uppercase tracking-wide">
+                                            ↓ Prompt Gerador de Imagem (Meta-Prompt)
+                                        </div>
+                                        <textarea
+                                            value={architecturePrompt}
+                                            onChange={(e) => setArchitecturePrompt(e.target.value)}
+                                            className="flex-1 w-full p-4 md:p-6 font-mono text-sm leading-relaxed text-indigo-900 bg-white outline-none resize-none selection:bg-indigo-100"
+                                            placeholder="Digite as instruções para a IA criar o prompt da imagem..."
+                                            spellCheck={false}
+                                        />
+                                    </>
                                 ) : activePromptTab === 'interviewer' ? (
                                     <>
                                         <div className="px-6 py-2 bg-indigo-100/50 border-b border-indigo-100 text-xs text-indigo-700 font-bold font-mono select-none uppercase tracking-wide">
@@ -1498,7 +1552,7 @@ export const SettingsView = () => {
 
                                 {/* Stats Overlay */}
                                 <div className="absolute top-24 right-8 pointer-events-none opacity-50 text-[10px] text-gray-400 bg-white/90 px-2 py-1 rounded border border-gray-100 backdrop-blur-sm z-10">
-                                    {(activePromptTab === 'generation' ? customContextRules : activePromptTab === 'interviewer' ? interviewerPrompt : initialPrompt).length} caracteres
+                                    {(activePromptTab === 'generation' ? customContextRules : activePromptTab === 'interviewer' ? interviewerPrompt : activePromptTab === 'architecture' ? architecturePrompt : initialPrompt).length} caracteres
                                 </div>
                             </div>
 

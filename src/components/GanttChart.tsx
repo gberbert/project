@@ -3,7 +3,7 @@ import "gantt-task-react/dist/index.css";
 import { Task } from '../types';
 import React, { useMemo, useState, useEffect } from 'react';
 import { checkIsHoliday, calculateBusinessDays } from '../lib/utils';
-import { Plus, Minus, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, GripVertical, Trash2, Smartphone, Minimize2, ZoomOut, ZoomIn, PanelLeftClose, PanelLeftOpen, FolderOpen, FolderClosed, BarChart3, MoreHorizontal } from 'lucide-react';
+import { Plus, Minus, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, GripVertical, Trash2, Smartphone, Minimize2, ZoomOut, ZoomIn, PanelLeftClose, PanelLeftOpen, FolderOpen, FolderClosed, BarChart3, MoreHorizontal, Sparkles } from 'lucide-react';
 import {
     DndContext,
     closestCenter,
@@ -34,6 +34,7 @@ interface GanttChartProps {
     isModalOpen?: boolean;
     onLandscapeModeChange?: (isLandscape: boolean) => void;
     onViewModeChange?: (view: ViewMode) => void;
+    aiConfidence?: number;
 }
 
 // Ensure TaskListTable receives the necessary props for DND
@@ -212,7 +213,7 @@ const SortableTaskRow = ({
     );
 };
 
-export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDeleteTask, onIndent, onOutdent, onReorderTasks, isModalOpen = false, onLandscapeModeChange, onViewModeChange }: GanttChartProps) => {
+export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDeleteTask, onIndent, onOutdent, onReorderTasks, isModalOpen = false, onLandscapeModeChange, onViewModeChange, aiConfidence }: GanttChartProps) => {
     const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
     const containerRef = React.useRef<HTMLDivElement>(null);
     const scrollContainerRef = React.useRef<HTMLDivElement>(null);
@@ -1024,6 +1025,17 @@ export const GanttChart = ({ tasks, onTaskChange, onEditTask, onAddTask, onDelet
                             <Minus size={16} className="text-red-600" />
                         </button>
                     </div>
+
+                    {/* AI Confidence Badge */}
+                    {aiConfidence !== undefined && (
+                        <div className={`hidden md:flex px-3 py-1.5 rounded-lg text-xs font-bold border items-center gap-2 ml-2 ${aiConfidence > 0.8
+                            ? 'bg-green-50 text-green-700 border-green-200'
+                            : 'bg-orange-50 text-orange-700 border-orange-200'
+                            }`}>
+                            <Sparkles size={14} />
+                            {(aiConfidence * 100).toFixed(0)}% Confiança
+                        </div>
+                    )}
 
                     {/* Mobile Landscape Toggle Button */}
                     <button

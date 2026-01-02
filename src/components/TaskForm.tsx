@@ -8,6 +8,7 @@ import {
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { SearchableSelect } from './SearchableSelect';
+import { calculateBusinessDays } from '../lib/utils';
 
 interface TaskFormProps {
     task?: Task;
@@ -148,30 +149,11 @@ export const TaskForm = ({ task, resources, projectTeam, allTasks, onSave, onCan
         setFormData(prev => ({ ...prev, dependencies: currentDeps.filter(id => id !== removeId) }));
     };
 
-    const HOLIDAYS_BR = [
-        '0-1', '3-21', '4-1', '8-7', '9-12', '10-2', '10-15', '11-25'
-    ];
-    const isHoliday = (date: Date) => {
-        const key = `${date.getMonth()}-${date.getDate()}`;
-        return HOLIDAYS_BR.includes(key);
-    };
+
 
     const countBusinessDays = (startDate: Date | undefined, endDate: Date | undefined) => {
         if (!startDate || !endDate) return 0;
-        const start = new Date(startDate);
-        const end = new Date(endDate);
-        start.setHours(12, 0, 0, 0);
-        end.setHours(12, 0, 0, 0);
-
-        if (isAfter(start, end)) return 0;
-
-        let count = 0;
-        let current = start;
-        while (current <= end) {
-            if (!isWeekend(current) && !isHoliday(current)) count++;
-            current = addDays(current, 1);
-        }
-        return count;
+        return calculateBusinessDays(startDate, endDate);
     };
 
     const effortMetrics = useMemo(() => {
@@ -438,12 +420,41 @@ export const TaskForm = ({ task, resources, projectTeam, allTasks, onSave, onCan
                                     <select
                                         value={
                                             (formData.progress || 0) === 0 ? 'todo' :
-                                                (formData.progress || 0) >= 100 ? 'done' : 'doing'
+                                                (formData.progress || 0) >= 100 ?
+                                                    (formData.start && formData.realStart && isSameDay(formData.start, formData.realStart) &&
+                                                        formData.end && formData.realEnd && isSameDay(formData.end, formData.realEnd)
+                                                        ? 'done_on_time'
+                                                        : 'done')
+                                                    : 'doing'
                                         }
                                         onChange={(e) => {
                                             const status = e.target.value;
                                             if (status === 'todo') setFormData(prev => ({ ...prev, progress: 0 }));
-                                            if (status === 'done') setFormData(prev => ({ ...prev, progress: 100 }));
+                                            if (status === 'done') {
+                                                const today = new Date();
+                                                today.setHours(12, 0, 0, 0);
+
+                                                setFormData(prev => ({
+                                                    ...prev,
+                                                    progress: 100,
+                                                    realStart: prev.start,
+                                                    realEnd: today
+                                                }));
+                                                // Force open real calendar modal to prompt dates
+                                                setIsRealCalendarOpen(true);
+                                                // Scroll to real calendar ref if needed
+                                                if (realCalendarRef.current) {
+                                                    realCalendarRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                                }
+                                            }
+                                            if (status === 'done_on_time') {
+                                                setFormData(prev => ({
+                                                    ...prev,
+                                                    progress: 100,
+                                                    realStart: prev.start,
+                                                    realEnd: prev.end
+                                                }));
+                                            }
                                             if (status === 'doing' && (formData.progress === 0 || formData.progress === 100)) {
                                                 setFormData(prev => ({ ...prev, progress: 50 }));
                                             }
@@ -452,7 +463,8 @@ export const TaskForm = ({ task, resources, projectTeam, allTasks, onSave, onCan
                                     >
                                         <option value="todo">A Fazer</option>
                                         <option value="doing">Em Andamento</option>
-                                        <option value="done">Concluído</option>
+                                        <option value="done">Concluído em Atraso/Antecipado</option>
+                                        <option value="done_on_time">Concluído no Prazo</option>
                                     </select>
                                 </div>
                                 <div>
@@ -461,7 +473,7 @@ export const TaskForm = ({ task, resources, projectTeam, allTasks, onSave, onCan
                                         <input
                                             type="number"
                                             min="0"
-                                            max="100"
+                                            max="99"
                                             value={formData.progress || 0}
                                             onChange={(e) => {
                                                 const valStr = e.target.value;
@@ -472,7 +484,10 @@ export const TaskForm = ({ task, resources, projectTeam, allTasks, onSave, onCan
                                                 let val = parseInt(valStr);
                                                 if (isNaN(val)) val = 0;
                                                 if (val < 0) val = 0;
-                                                if (val > 100) val = 100;
+                                                if (val >= 100) {
+                                                    val = 99; // Cap at 99 so user must use dropdown for completion
+                                                    // Optional: Could show a toast or message here
+                                                }
                                                 setFormData(prev => ({ ...prev, progress: val }));
                                             }}
                                             className={`${inputClasses} text-center`}

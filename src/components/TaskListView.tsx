@@ -1,10 +1,11 @@
 import { useState, useMemo } from 'react';
 import { Task, Resource } from '../types';
-import { format, differenceInBusinessDays } from 'date-fns';
+import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { Edit2, Trash2, CheckCircle2, Circle, Clock, Search, ChevronDown, ChevronRight, Folder } from 'lucide-react';
 import { ProjectService } from '../services/projectService';
 import { AppUser } from '../types/auth';
+import { calculateBusinessDays } from '../lib/utils';
 
 interface TaskListViewProps {
     tasks: Task[];
@@ -17,10 +18,6 @@ interface TaskListViewProps {
 export const TaskListView = ({ tasks, resources, onEditTask, isConnected, currentUser }: TaskListViewProps) => {
     const [filter, setFilter] = useState('');
     const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
-
-    // Initialize expanded state (Default: All Collapsed)
-    // Removed auto-expansion logic to keep initial view clean as requested.
-
 
     const toggleExpand = (id: string) => {
         const newSet = new Set(expandedIds);
@@ -55,39 +52,43 @@ export const TaskListView = ({ tasks, resources, onEditTask, isConnected, curren
 
     // Metrics Calculation Logic
     const metricsMap = useMemo(() => {
-        const map = new Map<string, { hours: number, cost: number, fte: number, rate: number }>();
+        const map = new Map<string, { hours: number, cost: number, realCost: number, fte: number, rate: number }>();
 
         // Helper to get cached or calc
-        const calc = (taskId: string): { hours: number, cost: number, fte: number, rate: number } => {
+        const calc = (taskId: string): { hours: number, cost: number, realCost: number, fte: number, rate: number } => {
             if (map.has(taskId)) return map.get(taskId)!;
 
             const task = tasks.find(t => t.id === taskId);
-            if (!task) return { hours: 0, cost: 0, fte: 0, rate: 0 };
+            if (!task) return { hours: 0, cost: 0, realCost: 0, fte: 0, rate: 0 };
 
             const children = tasks.filter(t => t.parent === taskId);
 
             if (children.length > 0) {
                 let totalHours = 0;
                 let totalCost = 0;
+                let totalRealCost = 0;
 
                 children.forEach(c => {
                     const m = calc(c.id);
                     totalHours += m.hours;
                     totalCost += m.cost;
+                    totalRealCost += m.realCost;
                 });
 
-                const busDays = Math.max(1, Math.abs(differenceInBusinessDays(task.end, task.start)) + 1);
+                // For Parent Tasks, duration is span of children or task dates? 
+                // Using task dates for FTE calculation background
+                const busDays = Math.max(1, calculateBusinessDays(task.start, task.end));
+
                 // FTE: Total Hours effort / (Duration available * 8h)
-                // If duration is 10 days (80h capacity), and we have 160h effort, we need 2 FTEs.
                 const fte = totalHours / (busDays * 8);
                 const avgRate = totalHours > 0 ? totalCost / totalHours : 0;
 
-                const result = { hours: totalHours, cost: totalCost, fte, rate: avgRate };
+                const result = { hours: totalHours, cost: totalCost, realCost: totalRealCost, fte, rate: avgRate };
                 map.set(taskId, result);
                 return result;
             } else {
                 // Leaf
-                const busDays = Math.max(1, Math.abs(differenceInBusinessDays(task.end, task.start)) + 1);
+                const busDays = Math.max(1, calculateBusinessDays(task.start, task.end));
                 const hours = busDays * 8; // Standard 8h day
 
                 let rate = task.hourlyRate || 0;
@@ -97,9 +98,18 @@ export const TaskListView = ({ tasks, resources, onEditTask, isConnected, curren
                 }
 
                 const cost = hours * rate;
+
+                // Real Cost Calculation
+                let realCost = 0;
+                if (task.realStart && task.realEnd) {
+                    const realDays = calculateBusinessDays(task.realStart, task.realEnd);
+                    // Using same rate for Real Cost
+                    realCost = realDays * 8 * rate;
+                }
+
                 const fte = 1; // Assigned full time for duration
 
-                const result = { hours, cost, fte, rate };
+                const result = { hours, cost, realCost, fte, rate };
                 map.set(taskId, result);
                 return result;
             }
@@ -135,7 +145,7 @@ export const TaskListView = ({ tasks, resources, onEditTask, isConnected, curren
         const children = getChildren(task.id);
         const hasChildren = children.length > 0 || task.type === 'project';
         const isExpanded = expandedIds.has(task.id);
-        const metrics = metricsMap.get(task.id) || { hours: 0, cost: 0, fte: 0, rate: 0 };
+        const metrics = metricsMap.get(task.id) || { hours: 0, cost: 0, realCost: 0, fte: 0, rate: 0 };
 
         if (filter) return null;
 
@@ -211,6 +221,9 @@ export const TaskListView = ({ tasks, resources, onEditTask, isConnected, curren
                     <td className="px-6 py-4 min-w-[120px] text-gray-900 text-xs font-bold text-right">
                         <span className="font-mono bg-amber-50 text-amber-800 px-2 py-1 rounded border border-amber-100 whitespace-nowrap">{formatCurrency(metrics.cost)}</span>
                     </td>
+                    <td className="px-6 py-4 min-w-[120px] text-gray-900 text-xs font-bold text-right">
+                        <span className="font-mono bg-emerald-50 text-emerald-800 px-2 py-1 rounded border border-emerald-100 whitespace-nowrap">{formatCurrency(metrics.realCost)}</span>
+                    </td>
 
                     <td className="px-6 py-4 min-w-[100px] text-right">
                         <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -242,14 +255,14 @@ export const TaskListView = ({ tasks, resources, onEditTask, isConnected, curren
         if (filtered.length === 0) {
             return (
                 <tr>
-                    <td colSpan={9} className="px-6 py-12 text-center text-gray-400">
+                    <td colSpan={10} className="px-6 py-12 text-center text-gray-400">
                         Nenhuma tarefa encontrada com "{filter}".
                     </td>
                 </tr>
             );
         }
         return filtered.map(t => {
-            const metrics = metricsMap.get(t.id) || { hours: 0, cost: 0, fte: 0, rate: 0 };
+            const metrics = metricsMap.get(t.id) || { hours: 0, cost: 0, realCost: 0, fte: 0, rate: 0 };
             return (
                 <tr key={t.id} className="group hover:bg-gray-50 transition-colors cursor-pointer border-b border-gray-50 bg-white" onClick={() => onEditTask(t)}>
                     <td className="px-6 py-4 sticky left-0 bg-white z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
@@ -273,6 +286,7 @@ export const TaskListView = ({ tasks, resources, onEditTask, isConnected, curren
                     <td className="px-6 py-4 text-xs font-mono text-purple-600 text-center">{metrics.fte.toFixed(1)}</td>
                     <td className="px-6 py-4 text-xs font-mono text-right text-emerald-600">R$ {metrics.rate.toFixed(0)}</td>
                     <td className="px-6 py-4 text-xs font-mono text-right font-bold text-amber-700">{formatCurrency(metrics.cost)}</td>
+                    <td className="px-6 py-4 text-xs font-mono text-right font-bold text-emerald-700">{formatCurrency(metrics.realCost)}</td>
 
                     <td className="px-6 py-4 text-right">
                         <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -316,6 +330,7 @@ export const TaskListView = ({ tasks, resources, onEditTask, isConnected, curren
                                 <th className="px-6 py-3 min-w-[100px] text-center">FTEs / Mês</th>
                                 <th className="px-6 py-3 min-w-[120px] text-right">Valor / h</th>
                                 <th className="px-6 py-3 min-w-[140px] text-right">Custo Est.</th>
+                                <th className="px-6 py-3 min-w-[140px] text-right">Custo Exec.</th>
                                 <th className="px-6 py-3 min-w-[100px] text-right">Ações</th>
                             </tr>
                         </thead>
@@ -323,7 +338,7 @@ export const TaskListView = ({ tasks, resources, onEditTask, isConnected, curren
                             {filter ? renderFlatList() : rootTasks.map(t => renderTaskRow(t))}
                             {!filter && rootTasks.length === 0 && (
                                 <tr>
-                                    <td colSpan={9} className="px-6 py-12 text-center text-gray-400">
+                                    <td colSpan={10} className="px-6 py-12 text-center text-gray-400">
                                         Nenhuma tarefa estruturada encontrada.
                                     </td>
                                 </tr>

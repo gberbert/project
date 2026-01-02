@@ -6,7 +6,7 @@ import { Bot, User, Paperclip, Send, Loader2, X, AlertCircle, FileText, LayoutDa
 export interface EstimateModalProps {
     isOpen: boolean;
     onClose: () => void;
-    onApplyEstimate: (estimate: EstimateResult) => Promise<void>;
+    onApplyEstimate: (estimate: EstimateResult, onProgress?: (status: string) => void) => Promise<void>;
     user?: { role: string;[key: string]: any };
     clientContext?: string;
     knowledgeBase?: string[];
@@ -24,13 +24,13 @@ interface Message {
 }
 
 // Sub-component for the rich estimate view with tabs
-const EstimateView = ({ estimate, onApply, isApplying }: { estimate: EstimateResult, onApply: () => void, isApplying: boolean }) => {
+const EstimateView = ({ estimate, onApply, isApplying, progressLog }: { estimate: EstimateResult, onApply: () => void, isApplying: boolean, progressLog: string[] }) => {
     const [activeTab, setActiveTab] = useState<'summary' | 'context' | 'planning' | 'delta'>('summary');
 
     const TabButton = ({ id, label, icon: Icon }: { id: typeof activeTab, label: string, icon: any }) => (
         <button
             onClick={() => setActiveTab(id)}
-            className={`flex items - center gap - 2 px - 4 py - 2 text - sm font - medium rounded - lg transition - colors ${activeTab === id
+            className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors ${activeTab === id
                 ? 'bg-indigo-100 text-indigo-700'
                 : 'text-gray-600 hover:bg-gray-100'
                 } `}
@@ -72,30 +72,52 @@ const EstimateView = ({ estimate, onApply, isApplying }: { estimate: EstimateRes
                             </div>
                             <div className="flex justify-between items-center">
                                 <span className="font-semibold text-gray-600">Confiança da IA</span>
-                                <span className={`font - bold ${estimate.confidence_score > 0.7 ? 'text-green-600' : 'text-orange-500'} `}>
+                                <span className={`font-bold ${estimate.confidence_score > 0.7 ? 'text-green-600' : 'text-orange-500'} `}>
                                     {(estimate.confidence_score * 100).toFixed(0)}%
                                 </span>
                             </div>
                         </div>
 
-                        <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl">
-                            <h4 className="font-semibold text-blue-900 text-sm mb-2">Próximos Passos</h4>
-                            <p className="text-blue-700 text-xs">
-                                Revise os detalhes nas abas "Contexto" e "Premissas" antes de gerar o gráfico.
-                                Ao clicar em gerar, as tarefas serão importadas para o cronograma interativo.
-                            </p>
-                        </div>
+                        {/* Progress Overlay / List when Applying */}
+                        {isApplying ? (
+                            <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-xl space-y-3 animate-in fade-in">
+                                <h4 className="font-semibold text-indigo-900 text-sm flex items-center gap-2">
+                                    <Loader2 size={16} className="animate-spin text-indigo-600" />
+                                    Processando Projeto...
+                                </h4>
+                                <div className="space-y-2">
+                                    {progressLog.map((log, idx) => (
+                                        <div key={idx} className="flex items-center gap-2 text-xs text-indigo-800">
+                                            <CheckSquare size={14} className="text-green-600" />
+                                            {log}
+                                        </div>
+                                    ))}
+                                    <div className="flex items-center gap-2 text-xs text-indigo-400 italic">
+                                        <div className="w-3 h-3 rounded-full border-2 border-indigo-300 border-t-transparent animate-spin" />
+                                        Trabalhando...
+                                    </div>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl">
+                                <h4 className="font-semibold text-blue-900 text-sm mb-2">Próximos Passos</h4>
+                                <p className="text-blue-700 text-xs">
+                                    Revise os detalhes nas abas "Contexto" e "Premissas" antes de gerar o gráfico.
+                                    Ao clicar em gerar, as tarefas serão importadas para o cronograma interativo.
+                                </p>
+                            </div>
+                        )}
 
                         <button
                             onClick={onApply}
                             disabled={isApplying}
-                            className={`w - full py - 3 rounded - xl font - bold transition - all flex items - center justify - center gap - 2 shadow - sm ${isApplying
-                                ? 'bg-green-700 text-white/80 cursor-wait'
+                            className={`w-full py-3 rounded-xl font-bold transition-all flex items-center justify-center gap-2 shadow-sm ${isApplying
+                                ? 'bg-gray-100 text-gray-400 cursor-wait'
                                 : 'bg-green-600 hover:bg-green-700 hover:shadow-md text-white'
                                 } `}
                         >
                             {isApplying ? (
-                                <><Loader2 size={18} className="animate-spin" /> Criando Tarefas...</>
+                                <>Criando Projeto...</>
                             ) : (
                                 <><LayoutDashboard size={18} /> Aprovar e Gerar Gantt</>
                             )}
@@ -351,6 +373,14 @@ export const EstimateModal = ({ isOpen, onClose, onApplyEstimate, user, clientCo
     const [validationData, setValidationData] = useState<string>('');
     const [validationFiles, setValidationFiles] = useState<{ name: string, type: string, data: string }[]>([]);
     const [isApplying, setIsApplying] = useState(false);
+    const [progressLog, setProgressLog] = useState<string[]>([]);
+
+    // Reset progress when modal opens/closes
+    useEffect(() => {
+        if (isOpen) {
+            setProgressLog([]);
+        }
+    }, [isOpen]);
 
     // --- Config State ---
     const [isConfigured] = useState(geminiService.isConfigured());
@@ -713,8 +743,11 @@ export const EstimateModal = ({ isOpen, onClose, onApplyEstimate, user, clientCo
     const handleApplyClick = async (estimate: EstimateResult) => {
         if (isApplying) return;
         setIsApplying(true);
+        setProgressLog(['Iniciando criação do projeto...']);
         try {
-            await onApplyEstimate(estimate);
+            await onApplyEstimate(estimate, (status) => {
+                setProgressLog(prev => [...prev, status]);
+            });
             onClose();
         } catch (e) {
             console.error(e);
@@ -861,6 +894,7 @@ export const EstimateModal = ({ isOpen, onClose, onApplyEstimate, user, clientCo
                                 estimate={msg.estimate}
                                 onApply={() => handleApplyClick(msg.estimate!)}
                                 isApplying={isApplying}
+                                progressLog={progressLog}
                             />
                         </div>
                     )}

@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { GanttChart } from './components/GanttChart';
 import { ViewMode } from 'gantt-task-react';
 import { Sidebar, MobileMenu } from './components/Sidebar';
@@ -6,6 +6,8 @@ import { ProjectSummary } from './components/ProjectSummary';
 import { TaskForm } from './components/TaskForm';
 import { TeamView } from './components/TeamView';
 import { ProjectTeamTab } from './components/ProjectTeamTab';
+import { ProjectMonthlyCostsTab } from './components/ProjectMonthlyCostsTab';
+import { ProjectOtherCostsTab } from './components/ProjectOtherCostsTab';
 import { DashboardView } from './components/DashboardView';
 import { TaskListView } from './components/TaskListView';
 import { ReportsView } from './components/ReportsView';
@@ -13,12 +15,12 @@ import { MyProjectsView } from './components/MyProjectsView';
 import { ClientsView } from './components/ClientsView';
 import { SettingsView } from './components/SettingsView';
 import { EstimateModal } from './components/EstimateModal';
-import { EstimateResult } from './services/geminiService';
+import { EstimateResult, geminiService } from './services/geminiService';
 import { useProjectLogic } from './hooks/useProjectLogic';
 import { isAfter, isWeekend, addDays, differenceInDays, addBusinessDays } from 'date-fns';
 
 import { Task, Resource, Project, ProjectTeamMember } from './types';
-import { Database, CloudOff, Menu, Sparkles, CheckCircle, Activity, Lock, LogOut, ChevronDown, FileText, CheckSquare, Target, Pencil, Trash2, Users } from 'lucide-react';
+import { Database, CloudOff, Menu, Sparkles, CheckCircle, Activity, Lock, LogOut, ChevronDown, FileText, CheckSquare, Target, Pencil, Trash2, Users, DollarSign, Tag, Image as ImageIcon, Loader2 } from 'lucide-react';
 import { ProjectService, getNextWorkingDay } from './services/projectService';
 import { StabilizationModal } from './components/StabilizationModal';
 import { useAuth } from './contexts/AuthContext';
@@ -30,6 +32,7 @@ import { parseProjectXML } from './services/ProjectImportService';
 import { exportProjectToXML } from './services/ProjectExportService';
 import { calculateBusinessDays } from './lib/utils';
 import { generateProposalPpt } from './services/proposalGenerator';
+import { ClientBlockageListModal } from './components/ClientBlockageListModal';
 
 // --- Stats Helper ---
 const countBusinessDays = (startDate: Date | undefined, endDate: Date | undefined) => {
@@ -37,7 +40,7 @@ const countBusinessDays = (startDate: Date | undefined, endDate: Date | undefine
     return calculateBusinessDays(startDate, endDate);
 };
 
-const calculateProjectStats = (tasks: Task[], resources: Resource[]) => {
+const calculateProjectStats = (tasks: Task[], resources: Resource[], project?: Project) => {
     if (tasks.length === 0) return { totalCost: 0, totalRealCost: 0, progress: 0, plannedProgress: 0, totalDuration: 0, totalRealDuration: 0, spi: 0, cpi: 0 };
 
     let minStart = new Date(8640000000000000);
@@ -54,12 +57,18 @@ const calculateProjectStats = (tasks: Task[], resources: Resource[]) => {
     let totalEarnedDuration = 0;
     let totalPlannedDuration = 0;
 
-    const leafTasks = tasks.filter(t => t.type !== 'project');
+    const leafTasks = tasks.filter(t => t.type !== 'project' && !tasks.some(child => child.parent === t.id));
+    const rootTasks = tasks.filter(t => !t.parent || !tasks.find(p => p.id === t.parent));
 
-    if (leafTasks.length === 0) return { totalCost: 0, totalRealCost: 0, progress: 0, plannedProgress: 0, totalDuration: 0, totalRealDuration: 0, spi: 0, cpi: 0 };
+    if (leafTasks.length === 0 && rootTasks.length === 0) return { totalCost: 0, totalRealCost: 0, progress: 0, plannedProgress: 0, totalDuration: 0, totalRealDuration: 0, spi: 0, cpi: 0 };
 
     const today = new Date();
     today.setHours(12, 0, 0, 0);
+
+    // Calculate Total Duration based on ROOTS (Phases/Top Level) to match the "DIAS" column sum in the UI
+    const totalRootDuration = rootTasks.reduce((acc, t) => {
+        return acc + Math.max(1, countBusinessDays(t.start, t.end));
+    }, 0);
 
     leafTasks.forEach(task => {
         const startMs = task.start.getTime();
@@ -100,21 +109,24 @@ const calculateProjectStats = (tasks: Task[], resources: Resource[]) => {
 
         // Calculate Cost Interest (Financial)
         let rate = task.hourlyRate || 0;
-        if (!rate && task.resourceId && resources.length > 0) {
-            const res = resources.find(r => r.id === task.resourceId);
-            if (res) rate = res.hourlyRate;
-        }
 
         if (rate > 0) {
             const budget = durationDays * 8 * rate; // BAC
-            totalCost += budget;
+            // If project is NOT defined, we sum up task costs as legacy behavior.
+            // If project IS defined, we overwrite totalCost at the end, but we need these for EVM (Earned Value) calculation ratios.
+            // Actually, if we use separate tabs for costs, EVM based on tasks might be disconnected.
+            // But for now, let's keep calculating task-based EV/AC/PV for SPI/CPI logic,
+            // but override the displayed Total Cost if project data is present.
+            if (!project) {
+                totalCost += budget;
+            }
 
             // EV (Earned Value)
             totalEarnedValue += budget * ((task.progress || 0) / 100);
 
             // AC (Actual Cost)
             if (task.realStart && task.realEnd) {
-                const rDays = Math.max(1, countBusinessDays(task.realStart, task.realEnd));
+                const rDays = countBusinessDays(task.realStart, task.realEnd);
                 totalRealCost += rDays * 8 * rate;
             }
 
@@ -122,6 +134,21 @@ const calculateProjectStats = (tasks: Task[], resources: Resource[]) => {
             totalPlannedValue += budget * taskPVPercent;
         }
     });
+
+    // Override Total Cost if Project Data is available (Monthly + Other)
+    if (project) {
+        const monthlyTotal = project.monthlyCosts?.reduce((sum, item) => sum + (item.cost || 0), 0) || 0;
+
+        let otherTotal = 0;
+        if (project.otherCosts) {
+            otherTotal = project.otherCosts.reduce((sum, item) => {
+                const rowSum = Object.values(item.values).reduce((a, b) => a + b, 0);
+                return sum + rowSum;
+            }, 0);
+        }
+
+        totalCost = monthlyTotal + otherTotal;
+    }
 
     const totalDurationBusinessDays = countBusinessDays(minStart, maxEnd);
     let totalRealDurationBusinessDays = 0;
@@ -134,38 +161,101 @@ const calculateProjectStats = (tasks: Task[], resources: Resource[]) => {
     let progress = 0;
     let plannedProgress = 0;
 
-    if (totalCost > 0) {
-        progress = Math.round((totalEarnedValue / totalCost) * 100);
-        plannedProgress = Math.round((totalPlannedValue / totalCost) * 100);
-    } else if (totalDurationWeight > 0) {
+    // We use the Task-based Budget accumulation for Progress calculation to keep it linked to Task Completion
+    // even if we display a manual Total Cost.
+    // However, if we don't have task-based costs, we use duration.
+    const taskBasedBudget = leafTasks.reduce((acc, t) => {
+        let rate = t.hourlyRate || 0;
+        if (!rate && t.resourceId && resources.length > 0) {
+            const res = resources.find(r => r.id === t.resourceId);
+            if (res) rate = res.hourlyRate;
+        }
+        return acc + (countBusinessDays(t.start, t.end) * 8 * rate);
+    }, 0);
+
+
+    if (taskBasedBudget > 0) {
+        progress = Math.round((totalEarnedValue / taskBasedBudget) * 100);
+        plannedProgress = Math.round((totalPlannedValue / taskBasedBudget) * 100);
+    } else {
+        // Fallback to Duration
         progress = Math.round((totalEarnedDuration / totalDurationWeight) * 100);
         plannedProgress = Math.round((totalPlannedDuration / totalDurationWeight) * 100);
     }
 
-    // CPI = EV / AC (Financial Only)
-    const cpi = totalRealCost > 0 ? totalEarnedValue / totalRealCost : 1;
 
-    // SPI = EV / PV (Financial or Duration based)
-    let spi = 1;
-    if (totalPlannedValue > 0) {
-        spi = totalEarnedValue / totalPlannedValue;
-    } else if (totalPlannedDuration > 0) {
-        spi = totalEarnedDuration / totalPlannedDuration;
-    }
+
+    // User Custom CPI: PV / AC (Spent less than planned = Good (>1))
+    const cpi = totalRealCost > 0 ? (totalPlannedValue / totalRealCost) : 1;
+    const spi = totalPlannedValue > 0 ? (totalEarnedValue / totalPlannedValue) : 1;
+
+
+    // Calculate Client Blockage Impact
+    let totalBlockageHours = 0;
+    let totalBlockageCost = 0;
+
+    tasks.forEach(task => {
+        if (task.clientBlockages && task.clientBlockages.length > 0) {
+            let rate = task.hourlyRate || 0;
+            // Fallback to resource rate if needed
+            if (rate === 0 && task.resourceId && resources.length > 0) {
+                const res = resources.find(r => r.id === task.resourceId);
+                if (res) rate = res.hourlyRate;
+            }
+
+            task.clientBlockages.forEach(b => {
+                // Safe Date Parsing
+                const parseDate = (d: any) => {
+                    if (!d) return new Date();
+                    if (d instanceof Date) return d;
+                    // Generic check for Firestore Timestamp-like objects (duck typing)
+                    if (typeof d.toDate === 'function') return d.toDate();
+                    return new Date(d);
+                };
+
+                const start = parseDate(b.start);
+                const end = b.end ? parseDate(b.end) : new Date();
+
+                // Ensure valid dates
+                if (isNaN(start.getTime()) || isNaN(end.getTime())) return;
+
+                // Ensure we don't calculate future blockages or invalid ranges
+                if (isAfter(start, end)) return;
+
+                const days = countBusinessDays(start, end);
+                const hours = days * 8; // Assuming 8h work day
+
+                totalBlockageHours += hours;
+                totalBlockageCost += hours * rate;
+            });
+        }
+    });
 
     return {
         totalCost,
         totalRealCost,
-        progress,
-        plannedProgress,
-        totalDuration: Math.max(0, totalDurationBusinessDays),
-        totalRealDuration: Math.max(0, totalRealDurationBusinessDays),
+        progress: Math.min(100, progress),
+        plannedProgress: Math.min(100, plannedProgress),
+        totalDuration: totalRootDuration > 0 ? totalRootDuration : totalDurationBusinessDays,
+        totalRealDuration: totalRealDurationBusinessDays,
         spi,
         cpi,
         startDate: minStart.getTime() !== 8640000000000000 ? minStart : undefined,
-        endDate: maxEnd.getTime() !== -8640000000000000 ? maxEnd : undefined
+        endDate: maxEnd.getTime() !== -8640000000000000 ? maxEnd : undefined,
+
+        // New Detailed Metrics
+        plannedDurationToDate: Math.round(totalPlannedDuration),
+        realDurationToDate: Math.round(totalEarnedDuration),
+
+        plannedCostToDate: totalPlannedValue,
+        realCostToDate: totalRealCost,
+
+        totalClientBlockageCost: totalBlockageCost,
+        totalClientBlockageHours: totalBlockageHours
     };
 };
+
+
 // --------------------
 
 // Mock Resources for Demo/Calculation in case DB is empty or error
@@ -242,12 +332,13 @@ function App() {
     const [connectionError, setConnectionError] = useState<string | null>(null);
     const [isOnline, setIsOnline] = useState(navigator.onLine);
     const [currentView, setCurrentView] = useState('clients_manage');
-    const [ganttTab, setGanttTab] = useState<'schedule' | 'tasks' | 'context' | 'premises' | 'team'>('schedule');
+    const [ganttTab, setGanttTab] = useState<'schedule' | 'tasks' | 'context' | 'premises' | 'team' | 'monthly_costs' | 'other_costs'>('schedule');
     const [ganttViewMode, setGanttViewMode] = useState<ViewMode>(ViewMode.Year);
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
     const [isStabilizationModalOpen, setIsStabilizationModalOpen] = useState(false);
     const [isEstimateModalOpen, setIsEstimateModalOpen] = useState(false);
     const [isProfileOpen, setIsProfileOpen] = useState(false);
+    const [isClientBlockageModalOpen, setIsClientBlockageModalOpen] = useState(false);
 
     const [selectedProjectId, setSelectedProjectId] = useState<string>('1');
     const [clientTasks, setClientTasks] = useState<Task[]>([]);
@@ -255,6 +346,7 @@ function App() {
     // --- Editing State ---
     const [editingDocKey, setEditingDocKey] = useState<string | null>(null);
     const [editingPremises, setEditingPremises] = useState(false);
+    const [isGeneratingArchitecture, setIsGeneratingArchitecture] = useState(false);
 
     // --- Editing Handlers ---
     const handleSaveDoc = (key: string, newContent: string) => {
@@ -295,6 +387,35 @@ function App() {
             setProjects(prev => prev.map(p => p.id === activeProject.id ? updatedProject : p));
             ProjectService.updateProject(activeProject.id, { technicalPremises: lines });
             setEditingPremises(false);
+        }
+    };
+
+    const handleGenerateArchitecture = async () => {
+        const activeProject = projects.find(p => p.id === selectedProjectId);
+        if (!activeProject || !activeProject.documentation?.technical_solution) {
+            alert("É necessário ter a 'Solução Técnica' preenchida na documentação para gerar a arquitetura.");
+            return;
+        }
+
+        setIsGeneratingArchitecture(true);
+        try {
+            console.log("Generating Architecture Prompt...");
+            const prompt = await geminiService.generateArchitecturePrompt(activeProject.documentation.technical_solution);
+            console.log("Prompt generated:", prompt);
+
+            console.log("Generating Image...");
+            const imageUrl = await geminiService.generateImage(prompt);
+            console.log("Image generated.");
+
+            const updatedProject = { ...activeProject, architectureImage: imageUrl };
+            setProjects(prev => prev.map(p => p.id === activeProject.id ? updatedProject : p));
+            await ProjectService.updateProject(activeProject.id, { architectureImage: imageUrl });
+
+        } catch (e: any) {
+            console.error(e);
+            alert("Erro ao gerar arquitetura: " + e.message);
+        } finally {
+            setIsGeneratingArchitecture(false);
         }
     };
 
@@ -408,6 +529,7 @@ function App() {
         outdentTask,
         reorderTasks,
     } = useProjectLogic(dbTasks);
+
 
     const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
     const [isGanttLandscape, setIsGanttLandscape] = useState(false);
@@ -829,9 +951,11 @@ function App() {
         ? tasks.filter(t => t.projectId === selectedProjectId || (t.projectId === '1' && selectedProjectId === '1')) // Compat with mock '1'
         : [];
 
+    const currentProject = useMemo(() => projects.find(p => p.id === selectedProjectId), [projects, selectedProjectId]);
+
     const stats = useMemo(() => {
-        return calculateProjectStats(projectTasks, resources);
-    }, [projectTasks, resources]);
+        return calculateProjectStats(projectTasks, resources, currentProject);
+    }, [projectTasks, resources, currentProject]);
 
     // Filter projects for the selected client (Strategic)
     // Filter projects for the selected client (Strategic)
@@ -883,14 +1007,16 @@ function App() {
     };
 
 
-    const handleApplyEstimate = async (estimate: EstimateResult) => {
+    const handleApplyEstimate = async (estimate: EstimateResult, onProgress?: (status: string) => void) => {
         if (!selectedProjectId) return;
 
+        onProgress?.('Inicializando cronograma...');
         let projectStart = getNextWorkingDay(new Date());
         const prefix = `ai-${Date.now()}-`;
         const idMap: Record<string, string> = {};
         // const roleMap: Record<string, string> = {};
 
+        onProgress?.('Definindo fases do projeto...');
         // 0. Prepare Hybrid Phases
         const phaseIds = {
             planning: `${prefix}phase-plan`,
@@ -960,6 +1086,7 @@ function App() {
         });
 
         // 2. Build AI Tasks (Children)
+        onProgress?.(`Estruturando ${estimate.tasks.length} tarefas inteligentes...`);
         const aiTasks: Task[] = estimate.tasks.map((t, index) => {
             const start = addBusinessDays(projectStart, t.start_offset_days || 0);
             const duration = Math.max(1, t.duration_days || 1);
@@ -1040,6 +1167,7 @@ function App() {
         });
 
         // 4. Save
+        onProgress?.('Salvando tarefas no banco de dados...');
         for (const task of orderedTasks) {
             await onAddTaskWrapper(task);
         }
@@ -1090,6 +1218,7 @@ function App() {
         const finalTeamStructure = Array.from(derivedTeamMap.values());
 
         if (selectedProjectId) {
+            onProgress?.('Atualizando documentação e contexto do projeto...');
             const updates = {
                 aiConfidence: estimate.confidence_score,
                 aiSummary: estimate.description,
@@ -1106,6 +1235,8 @@ function App() {
                 setProjects(prev => prev.map(p => p.id === selectedProjectId ? { ...p, ...updates } : p));
             }
         }
+        onProgress?.('Finalizado com sucesso!');
+
 
         setIsEstimateModalOpen(false);
     };
@@ -1116,6 +1247,20 @@ function App() {
                 if (isConnected) {
                     try {
                         await ProjectService.deleteAllTasksForProject(selectedProjectId);
+                        // Reset all project fields
+                        await ProjectService.updateProject(selectedProjectId, {
+                            documentation: undefined,
+                            teamStructure: [],
+                            monthlyCosts: [],
+                            otherCosts: [],
+                            technicalPremises: [],
+                            clientResponsibilities: [],
+                            raciMatrix: [],
+                            scopeDelta: undefined,
+                            aiSummary: undefined,
+                            aiConfidence: undefined,
+                            architectureImage: undefined
+                        });
                     } catch (e) {
                         console.error("Error clearing tasks", e);
                         alert("Erro ao limpar tarefas antigas. Verifique a conexão.");
@@ -1123,6 +1268,21 @@ function App() {
                     }
                 } else {
                     setDbTasks(prev => prev.filter(t => t.projectId !== selectedProjectId));
+                    // Reset local project fields
+                    setProjects(prev => prev.map(p => p.id === selectedProjectId ? {
+                        ...p,
+                        documentation: undefined,
+                        teamStructure: [],
+                        monthlyCosts: [],
+                        otherCosts: [],
+                        technicalPremises: [],
+                        clientResponsibilities: [],
+                        raciMatrix: [],
+                        scopeDelta: undefined,
+                        aiSummary: undefined,
+                        aiConfidence: undefined,
+                        architectureImage: undefined
+                    } : p));
                 }
                 setIsEstimateModalOpen(true);
             }
@@ -1445,15 +1605,7 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
                                 const proj = projects.find(p => p.id === selectedProjectId);
                                 return (
                                     <>
-                                        {proj?.aiConfidence && (
-                                            <div className={`hidden md:flex px-3 py-2 rounded-lg text-xs font-bold border items-center gap-2 ${proj.aiConfidence > 0.8
-                                                ? 'bg-green-50 text-green-700 border-green-200'
-                                                : 'bg-orange-50 text-orange-700 border-orange-200'
-                                                }`}>
-                                                <Sparkles size={14} />
-                                                {(proj.aiConfidence * 100).toFixed(0)}% Confiança
-                                            </div>
-                                        )}
+
                                         <button
                                             onClick={() => setIsStabilizationModalOpen(true)}
                                             className="bg-amber-500 hover:bg-amber-600 text-white px-3 py-2.5 rounded-lg flex items-center gap-2 font-medium shadow-lg shadow-amber-100 transition-all hover:scale-105 active:scale-95 text-xs lg:text-sm"
@@ -1462,14 +1614,7 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
                                             <Activity size={16} />
                                             Estabilizar
                                         </button>
-                                        <button
-                                            onClick={handleApproveProject}
-                                            className="bg-green-600 hover:bg-green-700 text-white px-3 py-2.5 rounded-lg flex items-center gap-2 font-medium shadow-lg shadow-green-100 transition-all hover:scale-105 active:scale-95 text-xs lg:text-sm"
-                                            title="Aprovar e Ensinar à IA"
-                                        >
-                                            <CheckCircle size={16} />
-                                            Aprovar
-                                        </button>
+
                                         {(isAdmin || user?.canUseAI) && (
                                             <button
                                                 onClick={handleEstimateClick}
@@ -1519,6 +1664,7 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
                                         setProjects(prev => prev.map(p => p.id === updated.id ? updated : p));
                                     }
                                 }}
+                                onShowClientBlockages={() => setIsClientBlockageModalOpen(true)}
                             />
                             <div className="flex items-end mb-0 overflow-x-auto no-scrollbar pl-1">
                                 <button
@@ -1539,16 +1685,7 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
                                 >
                                     Lista de Tarefas
                                 </button>
-                                <button
-                                    onClick={() => setGanttTab('context')}
-                                    className={`flex items-center gap-2 px-4 py-2 lg:px-6 lg:py-3 text-xs lg:text-sm font-bold rounded-t-lg transition-all border border-b-0 relative ${ganttTab === 'context'
-                                        ? 'bg-white text-indigo-600 border-gray-200 shadow-[0_-2px_10px_rgba(0,0,0,0.02)] z-10 scale-105 origin-bottom'
-                                        : 'bg-gray-50 text-gray-400 border-transparent hover:bg-gray-100 -mr-2 lg:-mr-0'
-                                        }`}
-                                >
-                                    <FileText size={16} />
-                                    Contexto
-                                </button>
+
                                 <button
                                     onClick={() => setGanttTab('premises')}
                                     className={`flex items-center gap-2 px-4 py-2 lg:px-6 lg:py-3 text-xs lg:text-sm font-bold rounded-t-lg transition-all border border-b-0 relative ${ganttTab === 'premises'
@@ -1569,6 +1706,17 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
                                     <Users size={16} />
                                     EQUIPE
                                 </button>
+
+                                <button
+                                    onClick={() => setGanttTab('monthly_costs')}
+                                    className={`flex items-center gap-2 px-4 py-2 lg:px-6 lg:py-3 text-xs lg:text-sm font-bold rounded-t-lg transition-all border border-b-0 relative ${ganttTab === 'monthly_costs'
+                                        ? 'bg-white text-indigo-600 border-gray-200 shadow-[0_-2px_10px_rgba(0,0,0,0.02)] z-10 scale-105 origin-bottom'
+                                        : 'bg-gray-50 text-gray-400 border-transparent hover:bg-gray-100'
+                                        }`}
+                                >
+                                    <DollarSign size={16} />
+                                    Declaração Mensal
+                                </button>
                                 {/* Bottom border filler */}
                                 <div className="flex-1 border-b border-gray-200 h-px"></div>
                             </div>
@@ -1588,6 +1736,7 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
                                             onViewModeChange={setGanttViewMode}
                                             isModalOpen={isTaskModalOpen || isStabilizationModalOpen || isEstimateModalOpen}
                                             onLandscapeModeChange={setIsGanttLandscape}
+                                            aiConfidence={projects.find(p => p.id === selectedProjectId)?.aiConfidence}
                                         />
                                     </div>
                                 </div>
@@ -1624,6 +1773,8 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
 
                                                 {/* Dynamic Documentation Grid */}
                                                 <div className="grid grid-cols-1 gap-6">
+
+
                                                     {(() => {
                                                         const DOC_ORDER = ['context_overview', 'technical_solution', 'implementation_steps', 'testing_strategy', 'scope', 'non_scope'];
                                                         const existingKeys = Object.keys(activeProject.documentation);
@@ -1671,34 +1822,93 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
                                                             }
 
                                                             return (
-                                                                <div key={key} className={`bg-white p-6 rounded-2xl border shadow-sm hover:shadow-md transition-shadow ${styleClass} group relative`}>
-                                                                    {/* Edit Controls */}
-                                                                    <div className="absolute top-4 right-4 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-white/90 backdrop-blur-sm rounded-lg border border-gray-100 shadow-sm p-1">
-                                                                        <button
-                                                                            onClick={() => setEditingDocKey(key)}
-                                                                            className="p-1.5 text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors"
-                                                                            title="Editar Bloco"
-                                                                        >
-                                                                            <Pencil size={14} />
-                                                                        </button>
-                                                                        <div className="w-px h-4 bg-gray-200" />
-                                                                        <button
-                                                                            onClick={() => handleDeleteDoc(key)}
-                                                                            className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
-                                                                            title="Remover Bloco"
-                                                                        >
-                                                                            <Trash2 size={14} />
-                                                                        </button>
+                                                                <React.Fragment key={key}>
+                                                                    <div className={`bg-white p-6 rounded-2xl border shadow-sm hover:shadow-md transition-shadow ${styleClass} group relative`}>
+                                                                        {/* Edit Controls */}
+                                                                        <div className="absolute top-4 right-4 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-white/90 backdrop-blur-sm rounded-lg border border-gray-100 shadow-sm p-1">
+                                                                            <button
+                                                                                onClick={() => setEditingDocKey(key)}
+                                                                                className="p-1.5 text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors"
+                                                                                title="Editar Bloco"
+                                                                            >
+                                                                                <Pencil size={14} />
+                                                                            </button>
+                                                                            <div className="w-px h-4 bg-gray-200" />
+                                                                            <button
+                                                                                onClick={() => handleDeleteDoc(key)}
+                                                                                className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
+                                                                                title="Remover Bloco"
+                                                                            >
+                                                                                <Trash2 size={14} />
+                                                                            </button>
+                                                                        </div>
+
+                                                                        <div className="flex items-center gap-3 mb-4 pb-3 border-b border-gray-100">
+                                                                            <div className={`p-2 rounded-lg ${iconColor}`}>
+                                                                                <IconComponent size={24} />
+                                                                            </div>
+                                                                            <h4 className="text-lg font-bold text-gray-900">{title}</h4>
+                                                                        </div>
+                                                                        <MarkdownRenderer content={content} className="text-sm" />
                                                                     </div>
 
-                                                                    <div className="flex items-center gap-3 mb-4 pb-3 border-b border-gray-100">
-                                                                        <div className={`p-2 rounded-lg ${iconColor}`}>
-                                                                            <IconComponent size={24} />
+                                                                    {/* Insert Architecture Diagram AFTER Technical Solution */}
+                                                                    {key === 'technical_solution' && (
+                                                                        <div className="bg-white p-6 rounded-2xl border border-blue-100 shadow-sm hover:shadow-md transition-shadow relative">
+                                                                            <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
+                                                                                <div className="flex items-center gap-3">
+                                                                                    <div className="p-2 rounded-lg bg-blue-50 text-blue-600">
+                                                                                        <ImageIcon size={24} />
+                                                                                    </div>
+                                                                                    <h4 className="text-lg font-bold text-gray-900">Diagrama de Arquitetura</h4>
+                                                                                </div>
+                                                                                {activeProject.architectureImage && (
+                                                                                    <button
+                                                                                        onClick={handleGenerateArchitecture}
+                                                                                        disabled={isGeneratingArchitecture}
+                                                                                        className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                                                                                        title="Regerar Imagem"
+                                                                                    >
+                                                                                        {isGeneratingArchitecture ? <Loader2 className="animate-spin" size={16} /> : <Sparkles size={16} />}
+                                                                                    </button>
+                                                                                )}
+                                                                            </div>
+
+                                                                            <div className="flex flex-col items-center justify-center min-h-[300px] bg-gray-50 rounded-xl border-2 border-dashed border-gray-200 p-4">
+                                                                                {activeProject.architectureImage ? (
+                                                                                    <img
+                                                                                        src={activeProject.architectureImage}
+                                                                                        alt="Architecture Diagram"
+                                                                                        className="w-full h-auto rounded-lg shadow-sm object-contain max-h-[500px]"
+                                                                                    />
+                                                                                ) : (
+                                                                                    <div className="text-center max-w-md">
+                                                                                        <ImageIcon className="mx-auto text-gray-300 mb-4" size={48} />
+                                                                                        <h5 className="text-gray-900 font-bold mb-2">Nenhum diagrama gerado</h5>
+                                                                                        <p className="text-gray-500 text-sm mb-6">
+                                                                                            Utilize a IA para visualizar a arquitetura técnica baseada na documentação do projeto.
+                                                                                        </p>
+                                                                                        <button
+                                                                                            onClick={handleGenerateArchitecture}
+                                                                                            disabled={isGeneratingArchitecture}
+                                                                                            className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm font-medium"
+                                                                                        >
+                                                                                            {isGeneratingArchitecture ? (
+                                                                                                <>
+                                                                                                    <Loader2 className="animate-spin" size={16} /> Gerando Diagrama...
+                                                                                                </>
+                                                                                            ) : (
+                                                                                                <>
+                                                                                                    <Sparkles size={16} /> Gerar Arquitetura com IA
+                                                                                                </>
+                                                                                            )}
+                                                                                        </button>
+                                                                                    </div>
+                                                                                )}
+                                                                            </div>
                                                                         </div>
-                                                                        <h4 className="text-lg font-bold text-gray-900">{title}</h4>
-                                                                    </div>
-                                                                    <MarkdownRenderer content={content} className="text-sm" />
-                                                                </div>
+                                                                    )}
+                                                                </React.Fragment>
                                                             );
                                                         });
                                                     })()}
@@ -1908,6 +2118,17 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
                                     />
                                 );
                             })()}
+
+                            {ganttTab === 'monthly_costs' && (() => {
+                                const activeProject = projects.find(p => p.id === selectedProjectId);
+                                if (!activeProject) return null;
+                                return (
+                                    <ProjectMonthlyCostsTab
+                                        project={activeProject}
+                                        tasks={projectTasks}
+                                    />
+                                );
+                            })()}
                         </>
                     )}
 
@@ -1975,6 +2196,13 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
                         });
                     }
                 }}
+            />
+
+            <ClientBlockageListModal
+                isOpen={isClientBlockageModalOpen}
+                onClose={() => setIsClientBlockageModalOpen(false)}
+                tasks={projectTasks}
+                resources={resources}
             />
 
             {
