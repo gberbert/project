@@ -47,6 +47,7 @@ export interface ClientBlockage {
     // Snapshots for historical records
     impactCost?: number;
     impactHours?: number;
+    impactPercentage?: number; // 0-100
 }
 
 // Strategic / AI Planning Types

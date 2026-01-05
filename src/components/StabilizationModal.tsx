@@ -1,14 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { Task } from '../types';
-import { differenceInBusinessDays, isBefore, startOfDay, format, addBusinessDays, isValid } from 'date-fns';
+import { differenceInBusinessDays, isBefore, startOfDay, format, addBusinessDays, isValid, areIntervalsOverlapping, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { AlertTriangle, Calendar, CheckCircle, ArrowRight, X } from 'lucide-react';
+import { AlertTriangle, Calendar, CheckCircle, ArrowRight, X, Clock, AlertOctagon } from 'lucide-react';
+import { calculateBusinessHours, addBusinessHours } from '../lib/utils';
+import { calculateProjectFinancials } from '../lib/financialUtils';
+import { Project } from '../types';
 
 interface StabilizationModalProps {
     isOpen: boolean;
     onClose: () => void;
     tasks: Task[];
     onUpdateTasks: (updates: { id: string, changes: Partial<Task> }[]) => Promise<void>;
+    project?: Project;
+    onUpdateProject?: (updates: Partial<Project>) => Promise<void>;
 }
 
 interface Issue {
@@ -28,12 +33,15 @@ interface Issue {
     // Blockage specific
     isBlocked: boolean;
     activeBlockageStart?: Date; // Added for validation
-    blockageStartDate?: string;
-    blockageEndDate?: string; // Added for retroactive unblock
+    blockageStartDate?: string; // YYYY-MM-DDTHH:mm
+    blockageEndDate?: string;   // YYYY-MM-DDTHH:mm
     blockageReason?: string;
+    affectedParallelTasks?: number; // UI flag
+    affectedParallelTasksNames?: string[];
+    blockageImpactPercentage?: number; // 0-100
 }
 
-export const StabilizationModal = ({ isOpen, onClose, tasks, onUpdateTasks }: StabilizationModalProps) => {
+export const StabilizationModal = ({ isOpen, onClose, tasks, onUpdateTasks, project, onUpdateProject }: StabilizationModalProps) => {
     const [issues, setIssues] = useState<Issue[]>([]);
     const [isSaving, setIsSaving] = useState(false);
 
@@ -110,9 +118,39 @@ export const StabilizationModal = ({ isOpen, onClose, tasks, onUpdateTasks }: St
         setIssues(detectedIssues);
     }, [isOpen, tasks]);
 
+    const calculateParallelImpact = (taskId: string, blockageStartStr: string) => {
+        const task = tasks.find(t => t.id === taskId);
+        if (!task || !blockageStartStr) return { count: 0, names: [] };
+
+        const blockageStart = new Date(blockageStartStr);
+        if (!isValid(blockageStart)) return { count: 0, names: [] };
+
+        // User Refinement: "From Start of Blockage to Today" (if open)
+        // We only consider tasks that would have been active in this window.
+        // If blockage has an end date, use that. If not, use Today.
+        const now = new Date();
+        const checkEnd = now; // Constrain impact window to "Today" for calculation per user request
+
+        const parallel = tasks.filter(t =>
+            t.id !== taskId &&
+            t.type !== 'project' &&
+            t.progress < 100 &&
+            // Logic: Task overlaps with the [BlockageStart, Today] window
+            // This catches tasks that started after blockageStart but before Today.
+            areIntervalsOverlapping(
+                { start: t.start, end: t.end },
+                { start: blockageStart, end: checkEnd }
+            )
+        );
+        return { count: parallel.length, names: parallel.map(t => t.name) };
+    };
+
     const handleActionChange = (index: number, action: Issue['action']) => {
         const copy = [...issues];
         copy[index].action = action;
+
+        const now = new Date();
+        const nowStr = format(now, "yyyy-MM-dd'T'HH:mm");
 
         // Defaults
         if (action === 'complete' || action === 'complete_on_time' || action === 'complete_custom') {
@@ -121,16 +159,29 @@ export const StabilizationModal = ({ isOpen, onClose, tasks, onUpdateTasks }: St
 
         if (action === 'complete_custom') {
             const task = tasks.find(t => t.id === copy[index].taskId);
-            copy[index].customRealStartDate = copy[index].customRealStartDate || (task ? format(task.start, 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'));
-            copy[index].customRealEndDate = copy[index].customRealEndDate || format(new Date(), 'yyyy-MM-dd');
+            copy[index].customRealStartDate = copy[index].customRealStartDate || (task ? format(task.start, 'yyyy-MM-dd') : format(now, 'yyyy-MM-dd'));
+            copy[index].customRealEndDate = copy[index].customRealEndDate || format(now, 'yyyy-MM-dd');
         }
 
         if (action === 'blocked_by_client') {
-            copy[index].blockageStartDate = format(new Date(), 'yyyy-MM-dd');
+            // Restore original start date if available (don't overwrite with NOW unless it's new)
+            if (copy[index].activeBlockageStart) {
+                copy[index].blockageStartDate = format(copy[index].activeBlockageStart, "yyyy-MM-dd'T'HH:00");
+            } else {
+                copy[index].blockageStartDate = format(now, "yyyy-MM-dd'T'HH:00");
+            }
+
+            copy[index].blockageEndDate = "";
+            copy[index].blockageImpactPercentage = 100; // Default
+
+            // Recalculate impact using the correct start date
+            const impact = calculateParallelImpact(copy[index].taskId, copy[index].blockageStartDate);
+            copy[index].affectedParallelTasks = impact.count;
+            copy[index].affectedParallelTasksNames = impact.names;
         }
 
         if (action === 'unblock_client') {
-            copy[index].blockageEndDate = format(new Date(), 'yyyy-MM-dd');
+            copy[index].blockageEndDate = format(now, "yyyy-MM-dd'T'HH:00");
         }
 
         setIssues(copy);
@@ -147,12 +198,26 @@ export const StabilizationModal = ({ isOpen, onClose, tasks, onUpdateTasks }: St
         if (field === 'newEndDate' && value !== format(copy[index].currentEnd, 'yyyy-MM-dd')) {
             copy[index].action = 'reschedule';
         }
+
+        // Recalculate impact if date changes
+        if (field === 'blockageStartDate' && copy[index].action === 'blocked_by_client') {
+            const impact = calculateParallelImpact(copy[index].taskId, value);
+            copy[index].affectedParallelTasks = impact.count;
+            copy[index].affectedParallelTasksNames = impact.names;
+        }
+
         setIssues(copy);
     };
 
     const handleSave = async () => {
         setIsSaving(true);
-        const updates: { id: string, changes: Partial<Task> }[] = [];
+        const updatesMap = new Map<string, Partial<Task>>();
+        let needsFinancialRecalculation = false;
+
+        const addUpdate = (id: string, change: Partial<Task>) => {
+            const existing = updatesMap.get(id) || {};
+            updatesMap.set(id, { ...existing, ...change });
+        };
 
         issues.forEach(issue => {
             if (issue.action === 'keep') return;
@@ -161,68 +226,176 @@ export const StabilizationModal = ({ isOpen, onClose, tasks, onUpdateTasks }: St
             const task = tasks.find(t => t.id === issue.taskId);
 
             if (issue.action === 'blocked_by_client') {
-                let blockageDate = new Date();
                 if (issue.blockageStartDate) {
-                    const [y, m, d] = issue.blockageStartDate.split('-').map(Number);
-                    blockageDate = new Date(y, m - 1, d, 12, 0, 0);
-                }
+                    const blockageStart = new Date(issue.blockageStartDate);
+                    // Use blockageEndDate if provided, otherwise it's an OPEN blockage (undefined end)
+                    let blockageEnd = issue.blockageEndDate ? new Date(issue.blockageEndDate) : undefined;
 
-                const newBlockage = {
-                    id: crypto.randomUUID(),
-                    start: blockageDate,
-                    reason: issue.blockageReason || 'Motivo não especificado'
-                };
-                change.clientBlockages = [...(task?.clientBlockages || []), newBlockage];
+                    // Validation: Ensure Dates are Valid
+                    if (!isValid(blockageStart)) return;
+                    if (blockageEnd && !isValid(blockageEnd)) blockageEnd = undefined;
+
+                    const reasonText = issue.blockageReason || 'Motivo não especificado';
+
+                    const newBlockage = {
+                        id: crypto.randomUUID(),
+                        start: blockageStart,
+                        end: blockageEnd,
+                        reason: reasonText,
+                        impactPercentage: issue.blockageImpactPercentage ?? 100
+                    };
+
+                    // 1. Update Target Task
+                    const targetBlockages = [...(task?.clientBlockages || []), newBlockage];
+                    addUpdate(issue.taskId, { clientBlockages: targetBlockages });
+
+                    // 2. Update PARALLEL Tasks (Impact Calculation)
+                    // Logic updated to match the "window of impact" described by user.
+                    // If blockageEnd is undefined, we use NOW as the limit for defining "affected" tasks so far.
+                    const checkEnd = blockageEnd || new Date();
+
+                    const parallelTasks = tasks.filter(t =>
+                        t.id !== issue.taskId &&
+                        t.type !== 'project' &&
+                        t.progress < 100 &&
+                        !t.clientBlockages?.some(b => !b.end) &&
+                        areIntervalsOverlapping(
+                            { start: t.start, end: t.end },
+                            { start: blockageStart, end: checkEnd }
+                        )
+                    );
+
+                    parallelTasks.forEach(pt => {
+                        // Create a specific reason linking to original blockage
+                        const linkedBlockage = {
+                            id: crypto.randomUUID(),
+                            start: blockageStart, // Same start
+                            end: blockageEnd, // Same end
+                            reason: `[IMPACTO SISTÊMICO] Bloqueio cascata originado em: "${task?.name}". Motivo: ${reasonText}`,
+                            impactPercentage: issue.blockageImpactPercentage ?? 100
+                        };
+                        const ptBlockages = [...(pt.clientBlockages || []), linkedBlockage];
+                        addUpdate(pt.id, { clientBlockages: ptBlockages });
+                    });
+                }
             }
             else if (issue.action === 'unblock_client') {
-                let unblockDate = new Date();
                 if (issue.blockageEndDate) {
-                    const [y, m, d] = issue.blockageEndDate.split('-').map(Number);
-                    unblockDate = new Date(y, m - 1, d, 12, 0, 0);
-                }
+                    const unblockDate = new Date(issue.blockageEndDate);
 
-                change.clientBlockages = task?.clientBlockages?.map(b =>
-                    (!b.end) ? { ...b, end: unblockDate } : b
-                );
+                    // 1. Unblock specific task and Extend End Date
+                    // Prefer activeBlockageStart (original start) over blockageStartDate (input which might be empty if not edited)
+                    const actualStart = issue.activeBlockageStart || new Date(issue.blockageStartDate || new Date());
+
+                    const durationInHours = calculateBusinessHours(
+                        actualStart,
+                        unblockDate
+                    );
+
+                    // Find original end date to extend
+                    const originalEnd = task?.end ? new Date(task.end) : new Date();
+                    const extendedEndDate = addBusinessHours(originalEnd, durationInHours);
+
+                    // Update blockages
+                    const updatedBlockages = task?.clientBlockages?.map(b =>
+                        (!b.end) ? { ...b, end: unblockDate } : b
+                    );
+
+                    // Verify if blockages logic needs to ensure we are targeting the CORRECT blockage for start date
+                    // Above we used `issue.blockageStartDate` which is bound to the issue being edited.
+                    // If multiple open blockages existed, this might be ambiguous, but UI forces one per time usually or we handle one.
+
+                    addUpdate(issue.taskId, {
+                        clientBlockages: updatedBlockages,
+                        end: extendedEndDate // Extend the task deadline!
+                    });
+
+                    needsFinancialRecalculation = true;
+
+                    // 2. Unblock Parallel/Cascading Tasks
+                    // Find tasks blocked by this specific task (Systemic Impact)
+                    if (task?.name) {
+                        const searchPattern = `[IMPACTO SISTÊMICO] Bloqueio cascata originado em: "${task.name}"`;
+
+                        const impactedTasks = tasks.filter(t =>
+                            t.id !== issue.taskId && // Not the source
+                            t.clientBlockages?.some(b =>
+                                !b.end &&
+                                b.reason?.includes(searchPattern)
+                            )
+                        );
+
+                        impactedTasks.forEach(affectedTask => {
+                            const updatedAffectedBlockages = affectedTask.clientBlockages?.map(b => {
+                                // Match the open blockage with the specific reason pattern
+                                if (!b.end && b.reason?.includes(searchPattern)) {
+                                    return { ...b, end: unblockDate };
+                                }
+                                return b;
+                            });
+                            addUpdate(affectedTask.id, { clientBlockages: updatedAffectedBlockages });
+                        });
+                    }
+                }
             }
             else if (issue.action === 'complete') {
-                change.progress = 100;
+                addUpdate(issue.taskId, { progress: 100 });
             }
             else if (issue.action === 'complete_on_time') {
-                change.progress = 100;
                 if (task) {
-                    change.realStart = task.start;
-                    change.realEnd = task.end;
+                    addUpdate(issue.taskId, {
+                        progress: 100,
+                        realStart: task.start,
+                        realEnd: task.end
+                    });
                 }
             }
             else if (issue.action === 'complete_custom') {
-                change.progress = 100;
+                const changes: any = { progress: 100 };
                 if (issue.customRealStartDate) {
                     const [y, m, d] = issue.customRealStartDate.split('-').map(Number);
-                    change.realStart = new Date(y, m - 1, d, 12, 0, 0);
+                    changes.realStart = new Date(y, m - 1, d, 12, 0, 0);
                 }
                 if (issue.customRealEndDate) {
                     const [y, m, d] = issue.customRealEndDate.split('-').map(Number);
-                    change.realEnd = new Date(y, m - 1, d, 18, 0, 0);
+                    changes.realEnd = new Date(y, m - 1, d, 18, 0, 0);
                 }
+                addUpdate(issue.taskId, changes);
             }
             else if (issue.action === 'update_progress') {
-                change.progress = Math.min(100, Math.max(0, issue.newProgress));
+                addUpdate(issue.taskId, { progress: Math.min(100, Math.max(0, issue.newProgress)) });
             }
             else if (issue.action === 'reschedule') {
                 const [y, m, d] = issue.newEndDate.split('-').map(Number);
                 const newEnd = new Date(y, m - 1, d, 18, 0, 0);
                 if (isValid(newEnd)) {
-                    change.end = newEnd;
+                    addUpdate(issue.taskId, { end: newEnd });
+                    needsFinancialRecalculation = true;
                 }
-            }
-
-            if (Object.keys(change).length > 0) {
-                updates.push({ id: issue.taskId, changes: change });
             }
         });
 
-        await onUpdateTasks(updates);
+        const updatesArray = Array.from(updatesMap.entries()).map(([id, changes]) => ({ id, changes }));
+        if (updatesArray.length > 0) {
+            await onUpdateTasks(updatesArray);
+
+            // AUTO RECALCULATE BASE (FINANCIALS)
+            if (needsFinancialRecalculation && project && onUpdateProject) {
+                // Apply updates locally to tasks for calculation
+                const updatedTasks = tasks.map(t => {
+                    if (updatesMap.has(t.id)) {
+                        return { ...t, ...updatesMap.get(t.id) };
+                    }
+                    return t;
+                });
+
+                const financialUpdates = calculateProjectFinancials(project, updatedTasks);
+                await onUpdateProject({
+                    monthlyCosts: financialUpdates.monthlyCosts,
+                    revenueDistribution: financialUpdates.revenueDistribution
+                });
+            }
+        }
         setIsSaving(false);
         onClose();
     };
@@ -355,15 +528,25 @@ export const StabilizationModal = ({ isOpen, onClose, tasks, onUpdateTasks }: St
                                                 {issue.action === 'blocked_by_client' && (
                                                     <div className="flex flex-col gap-2">
                                                         <div>
-                                                            <label className="text-[10px] font-bold text-red-500 uppercase block mb-1">Início do Bloqueio</label>
+                                                            <label className="text-[10px] font-bold text-red-500 uppercase block mb-1">Início (Data/Hora)</label>
                                                             <input
-                                                                type="date"
+                                                                type="datetime-local"
+                                                                step="3600"
                                                                 value={issue.blockageStartDate}
                                                                 onChange={(e) => updateIssue(idx, 'blockageStartDate', e.target.value)}
-                                                                max={format(new Date(), 'yyyy-MM-dd')}
-                                                                min={format(issue.currentStart, 'yyyy-MM-dd')}
                                                                 className="w-full text-xs p-1 border border-red-200 rounded focus:border-red-500 outline-none font-medium text-red-700"
                                                                 required
+                                                            />
+                                                        </div>
+                                                        <div>
+                                                            <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Fim (Opcional)</label>
+                                                            <input
+                                                                type="datetime-local"
+                                                                step="3600"
+                                                                value={issue.blockageEndDate || ''}
+                                                                onChange={(e) => updateIssue(idx, 'blockageEndDate', e.target.value)}
+                                                                min={issue.blockageStartDate}
+                                                                className="w-full text-xs p-1 border border-gray-200 rounded focus:border-red-500 outline-none font-medium text-gray-700 placeholder-gray-300"
                                                             />
                                                         </div>
                                                         <div>
@@ -372,26 +555,49 @@ export const StabilizationModal = ({ isOpen, onClose, tasks, onUpdateTasks }: St
                                                                 value={issue.blockageReason}
                                                                 onChange={(e) => updateIssue(idx, 'blockageReason', e.target.value)}
                                                                 className="w-full text-xs p-2 border border-red-200 rounded focus:border-red-500 outline-none bg-red-50 resize-none h-14"
-                                                                placeholder="Descreva o motivo..."
                                                             ></textarea>
                                                         </div>
+                                                        <div>
+                                                            <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">Impacto Financeiro (%)</label>
+                                                            <div className="flex items-center gap-2">
+                                                                <input
+                                                                    type="range"
+                                                                    min="0" max="100"
+                                                                    value={issue.blockageImpactPercentage ?? 100}
+                                                                    onChange={(e) => updateIssue(idx, 'blockageImpactPercentage', parseInt(e.target.value))}
+                                                                    className="w-20 accent-red-600 h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                                                                />
+                                                                <span className="text-sm font-bold text-red-700 w-8 text-right">{issue.blockageImpactPercentage ?? 100}%</span>
+                                                            </div>
+                                                        </div>
+                                                        {issue.affectedParallelTasks && issue.affectedParallelTasks > 0 ? (
+                                                            <div className="text-[10px] text-amber-600 bg-amber-50 p-2 rounded flex flex-col gap-1 border border-amber-100">
+                                                                <div className="flex items-center gap-1 font-bold">
+                                                                    <AlertOctagon size={12} />
+                                                                    Impacto (+{issue.affectedParallelTasks} tarefas):
+                                                                </div>
+                                                                <ul className="list-disc list-inside opacity-80 pl-1 leading-tight">
+                                                                    {issue.affectedParallelTasksNames?.map((name, i) => (
+                                                                        <li key={i} className="truncate" title={name}>{name}</li>
+                                                                    ))}
+                                                                </ul>
+                                                            </div>
+                                                        ) : null}
                                                     </div>
                                                 )}
 
                                                 {issue.action === 'unblock_client' && (
                                                     <div className="flex flex-col gap-2">
-                                                        <label className="text-[10px] font-bold text-green-600 uppercase block mb-1">Data de Desbloqueio</label>
+                                                        <label className="text-[10px] font-bold text-green-600 uppercase block mb-1">Data/Hora Desbloqueio</label>
                                                         <input
-                                                            type="date"
+                                                            type="datetime-local"
                                                             value={issue.blockageEndDate}
                                                             onChange={(e) => updateIssue(idx, 'blockageEndDate', e.target.value)}
-                                                            max={format(new Date(), 'yyyy-MM-dd')}
-                                                            min={issue.activeBlockageStart ? format(new Date(issue.activeBlockageStart), 'yyyy-MM-dd') : undefined}
                                                             className="w-full text-xs p-1 border border-green-200 rounded focus:border-green-500 outline-none font-medium text-green-700"
                                                             required
                                                         />
                                                         <div className="text-[10px] text-green-500 font-medium">
-                                                            Contador será interrompido na data acima.
+                                                            Contador de horas ociosas parado.
                                                         </div>
                                                     </div>
                                                 )}

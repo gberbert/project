@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { EstimateResult, ClarificationResult, ClarificationQuestion, geminiService, RefinementResponse, InterviewQuestion } from '../services/geminiService';
 import { MarkdownRenderer } from './MarkdownRenderer';
-import { Bot, User, Paperclip, Send, Loader2, X, AlertCircle, FileText, LayoutDashboard, CheckSquare, Target, Sparkles, Wand2, ArrowRight, Users, ArrowRightLeft } from 'lucide-react';
+import { Bot, User, Paperclip, Send, Loader2, X, AlertCircle, FileText, LayoutDashboard, CheckSquare, Target, Sparkles, Wand2, ArrowRight, Users, ArrowRightLeft, FileQuestion } from 'lucide-react';
 
 export interface EstimateModalProps {
     isOpen: boolean;
@@ -755,6 +755,49 @@ export const EstimateModal = ({ isOpen, onClose, onApplyEstimate, user, clientCo
         }
     };
 
+    const handleGenerateDoubts = async () => {
+        setIsLoading(true);
+        try {
+            // Prepare history similar to handleValidationAction
+            const history = messages
+                .filter(m => !m.isError && m.id !== 'welcome')
+                .map(m => ({
+                    role: m.role === 'user' ? 'user' : 'model' as "user" | "model",
+                    parts: [{ text: m.content || m.text || '' }]
+                }));
+
+            // Use current validation data as context if available, or finding first user msg
+            const context = validationData || messages.find(m => m.role === 'user')?.content || "";
+
+            const doubts = await geminiService.generateProjectDoubts(history, context);
+
+            if (doubts && doubts.length > 0) {
+                // Generate CSV content
+                const csvHeader = "\uFEFFCategoria;Pergunta;Motivo/Contexto\n"; // BOM for Excel
+                const csvRows = doubts.map(d => `"${d.category}";"${d.question}";"${d.reason}"`).join("\n");
+                const csvContent = csvHeader + csvRows;
+
+                // Trigger Download
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.setAttribute('download', `Duvidas_Projeto_${new Date().toISOString().slice(0, 10)}.csv`);
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            } else {
+                alert("Não foram encontradas dúvidas adicionais neste momento.");
+            }
+
+        } catch (err) {
+            console.error(err);
+            setError("Erro ao gerar lista de dúvidas.");
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
     // --- Renderers ---
 
     const renderRefinementForm = () => {
@@ -985,16 +1028,28 @@ export const EstimateModal = ({ isOpen, onClose, onApplyEstimate, user, clientCo
                                                         </div>
                                                     </div>
 
-                                                    <div className="flex items-center gap-2 p-3 bg-white border-t border-gray-100">
+                                                    <div className="flex items-center gap-2 p-3 bg-white border-t border-gray-100 flex-wrap">
+                                                        <button
+                                                            onClick={handleGenerateDoubts}
+                                                            disabled={isLoading}
+                                                            className="flex-1 min-w-[200px] py-2.5 px-4 bg-white border border-orange-200 text-orange-700 hover:bg-orange-50 rounded-lg font-bold text-xs transition-colors flex items-center justify-center gap-2"
+                                                        >
+                                                            {isLoading ? <Loader2 size={14} className="animate-spin" /> : <FileQuestion size={14} />}
+                                                            Gerar Lista Completa de Dúvidas (Excel)
+                                                        </button>
+
                                                         <button
                                                             onClick={() => handleValidationAction('adjust')}
-                                                            className="flex-1 py-2.5 px-4 bg-white border border-red-200 text-red-600 hover:bg-red-50 rounded-lg font-bold text-xs transition-colors flex items-center justify-center gap-2"
+                                                            disabled={isLoading}
+                                                            className="flex-1 min-w-[200px] py-2.5 px-4 bg-white border border-red-200 text-red-600 hover:bg-red-50 rounded-lg font-bold text-xs transition-colors flex items-center justify-center gap-2"
                                                         >
                                                             <X size={14} /> Corrigir / Ajustar
                                                         </button>
+
                                                         <button
                                                             onClick={() => handleValidationAction('approve')}
-                                                            className="flex-1 py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2"
+                                                            disabled={isLoading}
+                                                            className="flex-1 min-w-[200px] py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2"
                                                         >
                                                             <CheckSquare size={14} /> Correto, Prosseguir
                                                         </button>

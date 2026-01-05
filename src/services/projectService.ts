@@ -21,13 +21,23 @@ const TASKS_COL = 'tasks';
 const RESOURCES_COL = 'resources';
 const CLIENTS_COL = 'clients';
 
-const sanitizeData = (data: any) => {
-    if (!data || typeof data !== 'object') return data;
-    const clean = { ...data };
-    Object.keys(clean).forEach(key => {
-        if (clean[key] === undefined) delete clean[key];
-    });
-    return clean;
+const sanitizeData = (data: any): any => {
+    if (data === null || data === undefined) return data;
+    if (data instanceof Date) return data;
+    if (Array.isArray(data)) {
+        return data.map(item => sanitizeData(item)).filter(item => item !== undefined);
+    }
+    if (typeof data === 'object') {
+        const clean: any = {};
+        Object.keys(data).forEach(key => {
+            const value = data[key];
+            if (value !== undefined) {
+                clean[key] = sanitizeData(value);
+            }
+        });
+        return clean;
+    }
+    return data;
 };
 
 import { checkIsHoliday } from '../lib/utils';
@@ -194,7 +204,7 @@ export const ProjectService = {
         const batch = writeBatch(db);
         updates.forEach(({ id, data }) => {
             const ref = doc(db, TASKS_COL, id);
-            batch.update(ref, sanitizeData(data));
+            batch.set(ref, sanitizeData(data), { merge: true });
         });
         return batch.commit();
     },

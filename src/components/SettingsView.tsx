@@ -860,27 +860,37 @@ export const SettingsView = () => {
     const onDropSlide = useCallback(async (acceptedFiles: File[]) => {
         if (acceptedFiles.length === 0) return;
 
+        // Sort files naturally (Slide 1, Slide 2, Slide 10)
+        const sortedFiles = [...acceptedFiles].sort((a, b) =>
+            a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
+        );
+
+        const newSlides: SlideConfig[] = [];
+
         // Handle all dropped files
-        for (const file of acceptedFiles) {
+        for (const file of sortedFiles) {
             const id = `slide-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
             const imageId = `img-${id}`;
 
             try {
                 await saveImage(imageId, file);
-                const newSlide: SlideConfig = {
+                newSlides.push({
                     id,
                     type: 'custom',
                     name: file.name.replace(/\.[^/.]+$/, ""), // remove extension
                     imageId
-                };
-                setTemplateConfig(prev => ({
-                    ...prev,
-                    slides: [...prev.slides, newSlide]
-                }));
+                });
             } catch (e) {
                 console.error(e);
                 alert(`Erro ao salvar imagem do slide ${file.name}.`);
             }
+        }
+
+        if (newSlides.length > 0) {
+            setTemplateConfig(prev => ({
+                ...prev,
+                slides: [...prev.slides, ...newSlides]
+            }));
         }
     }, []);
 

@@ -507,7 +507,7 @@ export const ProjectSummary = ({ stats, project, onUpdateProject, onShowClientBl
                                         </div>
                                         <div className="text-right">
                                             <span className="text-lg font-black text-red-700 block leading-none">
-                                                {stats.totalClientBlockageHours || 0}<span className="text-xs font-medium ml-0.5">h</span>
+                                                {Math.round(stats.totalClientBlockageHours || 0)}<span className="text-xs font-medium ml-0.5">h</span>
                                             </span>
                                             <span className="text-xs font-bold text-red-400 block mt-1">
                                                 R$ {(stats.totalClientBlockageCost || 0).toLocaleString('pt-BR', { notation: 'compact' })}

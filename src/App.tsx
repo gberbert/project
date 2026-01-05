@@ -30,7 +30,7 @@ import { MarkdownEditor } from './components/MarkdownEditor';
 import { TopMenuBar } from './components/TopMenuBar';
 import { parseProjectXML } from './services/ProjectImportService';
 import { exportProjectToXML } from './services/ProjectExportService';
-import { calculateBusinessDays } from './lib/utils';
+import { calculateBusinessDays, calculateBusinessHours } from './lib/utils';
 import { generateProposalPpt } from './services/proposalGenerator';
 import { ClientBlockageListModal } from './components/ClientBlockageListModal';
 
@@ -222,8 +222,7 @@ const calculateProjectStats = (tasks: Task[], resources: Resource[], project?: P
                 // Ensure we don't calculate future blockages or invalid ranges
                 if (isAfter(start, end)) return;
 
-                const days = countBusinessDays(start, end);
-                const hours = days * 8; // Assuming 8h work day
+                const hours = calculateBusinessHours(start, end);
 
                 totalBlockageHours += hours;
                 totalBlockageCost += hours * rate;
@@ -2235,6 +2234,14 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
                         });
                     }
                 }}
+                project={projects.find(p => p.id === selectedProjectId)}
+                onUpdateProject={async (updates) => {
+                    if (selectedProjectId) {
+                        await ProjectService.updateProject(selectedProjectId, updates);
+                        // Note: We don't update local projects state heavily as it comes via subscription usually, 
+                        // but for immediate feedback we rely on Firebase subscription or additional state.
+                    }
+                }}
             />
 
             <ClientBlockageListModal
@@ -2242,6 +2249,27 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
                 onClose={() => setIsClientBlockageModalOpen(false)}
                 tasks={projectTasks}
                 resources={resources}
+                onUpdateTasks={async (updates) => {
+                    // Reuse the same logic as StabilizationModal
+                    const formattedUpdates = updates.map(u => ({ id: u.id, data: u.changes }));
+                    if (isConnected) {
+                        try {
+                            await ProjectService.batchUpdateTasks(formattedUpdates);
+                            setDbTasks(prev => {
+                                const map = new Map(updates.map(u => [u.id, u.changes]));
+                                return prev.map(t => map.has(t.id) ? { ...t, ...map.get(t.id) } : t);
+                            });
+                        } catch (e) {
+                            console.error("Batch update failed", e);
+                            alert("Erro ao excluir bloqueios.");
+                        }
+                    } else {
+                        setDbTasks(prev => {
+                            const map = new Map(updates.map(u => [u.id, u.changes]));
+                            return prev.map(t => map.has(t.id) ? { ...t, ...map.get(t.id) } : t);
+                        });
+                    }
+                }}
             />
 
             {

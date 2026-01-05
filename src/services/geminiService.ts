@@ -911,6 +911,57 @@ export class GeminiService {
         const text = result.response.text();
         return this.parseJSON(text);
     }
+
+    async generateProjectDoubts(
+        history: { role: "user" | "model", parts: { text: string }[] }[],
+        projectContext: string
+    ): Promise<{ category: string, question: string, reason: string }[]> {
+        if (!this.genAI) throw new Error("Gemini API not configured");
+
+        const model = this.genAI.getGenerativeModel({
+            model: "gemini-2.5-flash",
+            generationConfig: { responseMimeType: "application/json" }
+        });
+
+        const prompt = `
+            Você é um Auditor Técnico Sênior.
+            Sua missão é gerar uma LISTA EXAUSTIVA de dúvidas e pontos de atenção que precisam ser esclarecidos para garantir uma estimativa de projeto 100% segura.
+            
+            CONTEXTO ATUAL DO PROJETO:
+            ${projectContext}
+            
+            INSTRUÇÕES:
+            1. Analise o contexto acima e todo o histórico da conversa (que será enviado junto).
+            2. Identifique lacunas, riscos, ou definições vagas em:
+               - Requisitos Funcionais
+               - Requisitos Técnicos (Infra, Segurança, Performance)
+               - Modelo de Negócio / Faturamento
+               - Integrações
+               - Dados (Migração, Volumetria)
+            3. Ignore o que JÁ FOI RESPONDIDO. Foque no que FALTA.
+            4. VERIFICAÇÃO MANDATÓRIA (Se não estiver claro no material):
+               - [STACK]: Pergunte: "Qual a Stack Tecnológica definida ou o contratado tem liberdade para sugerir?"
+               - [INFRA]: Pergunte: "Qual provider de Cloud deve ser considerado (AWS/Azure/GCP) ou se a infraestrutura será On-Premise?"
+            5. Gere uma lista JSON plana com todas as dúvidas. Não há limite de quantidade, mas evite repetições óbvias.
+            
+            SAÍDA JSON ESPERADA:
+            [
+                { 
+                    "category": "Infraestrutura", 
+                    "question": "Qual a volumetria estimada de acessos simultâneos?", 
+                    "reason": "Necessário para dimensionar Cluster Kubernetes." 
+                }
+            ]
+        `;
+
+        const chat = model.startChat({ history });
+        const result = await chat.sendMessage(prompt);
+        const text = result.response.text();
+
+        const parsed = this.parseJSON(text);
+        if (Array.isArray(parsed)) return parsed;
+        return [];
+    }
 }
 
 export const geminiService = new GeminiService();

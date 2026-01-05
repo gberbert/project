@@ -576,232 +576,106 @@ export const generateProposalPpt = async (project: Project, options: GenerationO
             const phases = options.tasks.filter(t => t.type === 'project' || !t.parent).sort((a, b) => (a.order || 0) - (b.order || 0));
 
             if (phases.length > 0) {
+                // --- Native Roadmap (Replaced by AI Generation) ---
                 const isWeekly = options.viewMode === 'Week';
                 // Filter phases to exclude Management for the slide
                 const visiblePhases = phases.filter(p => !p.id.includes('phase-mgmt'));
 
-                const minDate = new Date(Math.min(...visiblePhases.map(p => new Date(p.start).getTime())));
-                const maxDate = new Date(Math.max(...visiblePhases.map(p => new Date(p.end).getTime())));
+                const minTime = Math.min(...visiblePhases.map(p => new Date(p.start).getTime()));
+                const maxTime = Math.max(...visiblePhases.map(p => new Date(p.end).getTime()));
+                const minDate = new Date(minTime);
+                const maxDate = new Date(maxTime);
 
-                // Add buffer
-                minDate.setDate(minDate.getDate() - 5);
-                maxDate.setDate(maxDate.getDate() + 10);
-
-                const totalDuration = (maxDate.getTime() - minDate.getTime()) / (1000 * 3600 * 24);
-                // Removed redeclaration of isWeekly
-                // const isWeekly = totalDuration < 120; 
-
-                const CHART_START_X = 0.5;
-                const CHART_Y = 1.3;
-                const CHART_WIDTH = 9.0;
-                const LABEL_WIDTH = 2.5;
-                const ROW_HEIGHT = isWeekly ? 0.7 : 0.6;
-                const HEADER_H = 0.5;
-                const HEADER_Y = CHART_Y;
-                const ROW_START_Y = HEADER_Y + HEADER_H;
-
-                const PALETTE = ['4F46E5', '4338CA', '6366F1', '818CF8', '3730A3', '312E81']; // Modern Indigo Palette
-
-                // Title Area Total Info
-                const totalHours = visiblePhases.reduce((acc, p) => acc + (calculateBusinessDays(new Date(p.start), new Date(p.end)) * 8), 0);
                 const totalDays = visiblePhases.reduce((acc, p) => acc + calculateBusinessDays(new Date(p.start), new Date(p.end)), 0);
+                const totalHours = totalDays * 8;
 
-                slideRoadmap.addShape(pptx.ShapeType.rect, {
-                    x: CHART_START_X, y: 1.25, w: LABEL_WIDTH, h: 0.8,
-                    fill: { color: 'F3F4F6' }
-                });
-                slideRoadmap.addText(`Total Estimado:\n${totalDays} dias úteis / ${totalHours}h`, {
-                    x: CHART_START_X, y: 1.3, w: LABEL_WIDTH, h: 0.7,
-                    fontSize: 10, bold: true, align: 'center', color: '1F2937'
-                });
+                // --- AI IMAGE GENERATION FOR ROADMAP (Includes Billing) ---
+                options.onStatusUpdate?.("Gerando Visualização de Cronograma (IA Image)...");
 
-                // Calculate px per day
-                const timeSpan = maxDate.getTime() - minDate.getTime();
-                const pxPerDay = (CHART_WIDTH - LABEL_WIDTH) / (timeSpan / (1000 * 3600 * 24));
+                try {
+                    // 1. Calculate Billing Milestones (Logic extracted from removed table)
+                    let shares: number[] = [];
+                    if (phases.length === 4) {
+                        shares = [10, 25, 45, 20];
+                    } else {
+                        const baseShare = Math.floor(100 / phases.length);
+                        shares = Array(phases.length).fill(baseShare);
+                        const sum = shares.reduce((a, b) => a + b, 0);
+                        if (sum < 100) shares[shares.length - 1] += (100 - sum);
+                    }
 
-                // Draw Timeline Header
-                let currTime = new Date(minDate);
-                let colIndex = 0;
+                    // 2. Construct Context for the Image (Timeline + Billing)
+                    const timelineSummary = visiblePhases.map((p, i) => {
+                        return `${i + 1}. ${p.name}: ${new Date(p.start).toLocaleDateString('pt-BR')} a ${new Date(p.end).toLocaleDateString('pt-BR')} (${calculateBusinessDays(new Date(p.start), new Date(p.end))} dias)`;
+                    }).join('\n');
 
-                while (true) {
-                    const nextTime = new Date(currTime);
-                    if (isWeekly) nextTime.setDate(nextTime.getDate() + 7);
-                    else nextTime.setMonth(nextTime.getMonth() + 1);
+                    const billingSummary = visiblePhases.map((p, i) => {
+                        const percent = shares[i] || 0;
+                        const dateStr = new Date(p.end).toLocaleDateString('pt-BR');
+                        return `   - Milestone ${i + 1} (${p.name}): ${percent}% Faturamento na entrega em ${dateStr}`;
+                    }).join('\n');
 
-                    const timeDiff = Math.max(0, currTime.getTime() - minDate.getTime());
-                    const daysDiff = timeDiff / (1000 * 3600 * 24);
-                    const labelX = CHART_START_X + LABEL_WIDTH + (daysDiff * pxPerDay);
+                    // 3. Build Prompt
+                    const roadmapPrompt = `
+                        Create a high-quality, professional Gantt Chart / Project Roadmap visualization.
+                        Style: Modern Corporate, Clean, Minimalist. White background.
+                        Color Palette: Indigo/Blue shades (Professional Tech).
 
-                    if (labelX > CHART_START_X + CHART_WIDTH - 0.05) break;
+                        Timeline Scope: Total ${totalDays} business days (~${Math.round(totalDays / 20)} months).
+                        
+                        Data to Visualize (DRAW THESE BARS AND LABELS CLEARLY):
+                        ${timelineSummary}
 
-                    const daysInSegment = (nextTime.getTime() - currTime.getTime()) / (1000 * 3600 * 24);
-                    const segW = daysInSegment * pxPerDay;
+                        BILLING MILESTONES (Must be visualized, e.g., as diamonds or flags at the end of phases):
+                        ${billingSummary}
 
-                    const headerColors = ['D0E1F2', 'B4D5E6', 'E1EFF9', 'C8DEEF']; // Sober Blue Header
-                    const bgCol = headerColors[colIndex % headerColors.length];
+                        Instructions:
+                        - Draw a horizontal timeline header with Months/Weeks.
+                        - Draw horizontal bars for each phase listed above, respecting relative lengths.
+                        - NUMBER the phases (1, 2, 3...) corresponding to the list.
+                        - Include the Phase Name and Dates next to or inside the bars.
+                        = IMPORTANT: Visualize the Billing Milestones (percentage and date) clearly at the end of each respective phase bar.
+                        - Make text legible and sharp.
+                        - High resolution, 16:9 aspect ratio suitable for a presentation slide.
+                        - Do NOT add generic "Lorem Ipsum" text. Use the provided task names.
+                    `;
 
-                    slideRoadmap.addShape(pptx.ShapeType.rect, {
-                        x: labelX, y: HEADER_Y, w: segW, h: HEADER_H,
-                        fill: { color: bgCol }, line: { color: 'FFFFFF', width: 1 }
+                    // 4. Generate Image
+                    const roadmapImageBase64 = await geminiService.generateImage(roadmapPrompt);
+
+                    // 5. Add Image to Slide
+                    slideRoadmap.addImage({
+                        data: roadmapImageBase64,
+                        x: 0.5, y: 1.3, w: 9.0, h: 4.8
                     });
 
-                    let labelText = isWeekly
-                        ? currTime.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
-                        : `${currTime.toLocaleDateString('pt-BR', { month: 'short' }).toUpperCase().replace('.', '')}/${currTime.toLocaleDateString('pt-BR', { year: '2-digit' })}`;
-
-                    slideRoadmap.addText(labelText, {
-                        x: labelX + (segW / 2) - (0.69 / 2), y: HEADER_Y + (HEADER_H / 2) - (0.21 / 2),
-                        w: 0.69, h: 0.21, fontSize: 9, color: '374151',
-                        rotate: 270, align: 'center', valign: 'middle'
+                    // Add info note
+                    slideRoadmap.addText(`Visualização gerada por IA (Estimativa: ${totalDays} dias úteis / ${totalHours}h)`, {
+                        x: 0.5, y: 6.2, w: 9, h: 0.2, fontSize: 8, color: '999999', align: 'right'
                     });
 
-                    slideRoadmap.addShape(pptx.ShapeType.line, {
-                        x: labelX, y: ROW_START_Y, w: 0, h: (visiblePhases.length * ROW_HEIGHT) + 0.1,
-                        line: { color: 'E5E7EB', width: 1 }
-                    });
+                } catch (imgErr: any) {
+                    console.error("Roadmap Image Gen Failed", imgErr);
+                    // Fallback: Text List
+                    slideRoadmap.addText("Cronograma Macro (Lista)", { x: 0.5, y: 1.2, w: 9, fontSize: 14, bold: true, color: '374151' });
 
-                    currTime = nextTime;
-                    colIndex++;
+                    const items = visiblePhases.map((p, i) => ({
+                        text: `${i + 1}. ${p.name} (${new Date(p.start).toLocaleDateString('pt-BR')} - ${new Date(p.end).toLocaleDateString('pt-BR')})`,
+                        options: { fontSize: 11, breakLine: true, bullet: { code: '2022' } }
+                    }));
+                    slideRoadmap.addText(items, { x: 0.5, y: 1.6, w: 9, h: 3.5, valign: 'top' });
                 }
-
-                // Draw Phases
-                visiblePhases.forEach((phase, index) => {
-                    const yPos = ROW_START_Y + (index * ROW_HEIGHT);
-                    const color = PALETTE[index % PALETTE.length];
-
-                    if (index % 2 === 0) {
-                        slideRoadmap.addShape(pptx.ShapeType.rect, {
-                            x: CHART_START_X, y: yPos, w: CHART_WIDTH, h: ROW_HEIGHT,
-                            fill: { color: 'F9FAFB' }
-                        });
-                    }
-
-                    // Number & Name
-                    const num = (index + 1).toString();
-                    slideRoadmap.addShape(pptx.ShapeType.ellipse, {
-                        x: CHART_START_X + 0.05, y: yPos + 0.05, w: 0.30, h: 0.30,
-                        fill: { color: color }
-                    });
-                    slideRoadmap.addText(num, {
-                        x: CHART_START_X + 0.05, y: yPos + 0.05, w: 0.30, h: 0.30,
-                        fontSize: 9, bold: true, color: 'FFFFFF', align: 'center', valign: 'middle'
-                    });
-
-                    slideRoadmap.addText(phase.name, {
-                        x: CHART_START_X + 0.4, y: yPos, w: LABEL_WIDTH - 0.45, h: ROW_HEIGHT,
-                        fontSize: 10, bold: true, color: '374151', valign: 'middle'
-                    });
-
-                    // Bar
-                    let start = new Date(phase.start);
-                    let end = new Date(phase.end);
-                    if (start < minDate) start = minDate;
-                    if (end > maxDate) end = maxDate;
-
-                    const daysStart = (start.getTime() - minDate.getTime()) / (1000 * 3600 * 24);
-                    const daysDuration = (end.getTime() - start.getTime()) / (1000 * 3600 * 24);
-
-                    const barX = CHART_START_X + LABEL_WIDTH + (daysStart * pxPerDay);
-                    let barW = daysDuration * pxPerDay;
-                    if (barW < 0.1) barW = 0.1;
-
-                    slideRoadmap.addShape(pptx.ShapeType.rect, {
-                        x: barX, y: yPos + (ROW_HEIGHT / 2) - 0.08, w: barW, h: 0.16,
-                        fill: { color: color }
-                    });
-
-                    // Add Business Days/Hours Label above bar
-                    const businessDays = calculateBusinessDays(start, end);
-                    const hours = businessDays * 8;
-                    const durationText = `${businessDays} dias / ${hours}h`;
-
-                    slideRoadmap.addText(durationText, {
-                        x: barX, y: yPos - 0.05, w: Math.max(1.5, barW), h: 0.20,
-                        fontSize: 8, color: '6B7280', align: 'left', bold: true
-                    });
-
-                    // Start/End Circles
-                    if (start >= minDate) {
-                        // Hollow at start
-                        slideRoadmap.addShape(pptx.ShapeType.ellipse, {
-                            x: barX - 0.08, y: yPos + (ROW_HEIGHT / 2) - 0.08, w: 0.16, h: 0.16,
-                            line: { color: color, width: 2 }, fill: { color: 'FFFFFF' }
-                        });
-                    }
-                    if (end <= maxDate) {
-                        // Solid at end
-                        slideRoadmap.addShape(pptx.ShapeType.ellipse, {
-                            x: barX + barW - 0.08, y: yPos + (ROW_HEIGHT / 2) - 0.08, w: 0.16, h: 0.16,
-                            fill: { color: color }
-                        });
-                    }
-                });
-
-                // --- Billing Proposal Section ---
-                const BILLING_START_Y = ROW_START_Y + (phases.length * ROW_HEIGHT) + 0.4;
-
-                slideRoadmap.addText("Proposta de Faturamento (Marcos de Entrega)", {
-                    x: CHART_START_X, y: BILLING_START_Y, w: 5.0, h: 0.3,
-                    fontSize: 12, bold: true, color: '003B5C'
-                });
-
-                // Table Header
-                const T_Y = BILLING_START_Y + 0.35;
-                slideRoadmap.addShape(pptx.ShapeType.rect, { x: CHART_START_X, y: T_Y, w: 4.8, h: 0.25, fill: { color: 'E5E7EB' } });
-                slideRoadmap.addText("Marco", { x: CHART_START_X + 0.1, y: T_Y, w: 2.3, h: 0.25, fontSize: 8, bold: true, color: '374151' });
-                slideRoadmap.addText("Data Estimada", { x: CHART_START_X + 2.4, y: T_Y, w: 1.5, h: 0.25, fontSize: 8, bold: true, color: '374151' });
-                slideRoadmap.addText("% Fat.", { x: CHART_START_X + 3.9, y: T_Y, w: 0.9, h: 0.25, fontSize: 8, bold: true, color: '374151', align: 'center' });
-
-                // Table Rows
-                let currentY = T_Y + 0.25;
-
-                // Distribuição de Faturamento Sob Medida (10/25/45/20) para 4 fases
-                let shares: number[] = [];
-                if (phases.length === 4) {
-                    shares = [10, 25, 45, 20];
-                } else {
-                    // Fallback: Equal share
-                    const baseShare = Math.floor(100 / phases.length);
-                    shares = Array(phases.length).fill(baseShare);
-                    // Adjust last one to sum to 100
-                    const sum = shares.reduce((a, b) => a + b, 0);
-                    if (sum < 100) shares[shares.length - 1] += (100 - sum);
-                }
-
-                phases.forEach((phase, i) => {
-                    let pEnd = new Date(phase.end);
-                    const dateStr = pEnd.toLocaleDateString('pt-BR');
-                    const percent = shares[i] || 0;
-
-                    slideRoadmap.addShape(pptx.ShapeType.line, { x: CHART_START_X, y: currentY + 0.25, w: 4.8, h: 0, line: { color: 'D1D5DB' } });
-
-                    slideRoadmap.addText(`${i + 1}. ${phase.name}`, {
-                        x: CHART_START_X + 0.1, y: currentY, w: 2.3, h: 0.25, fontSize: 8, color: '4B5563'
-                    });
-                    slideRoadmap.addText(dateStr, {
-                        x: CHART_START_X + 2.4, y: currentY, w: 1.5, h: 0.25, fontSize: 8, color: '4B5563'
-                    });
-                    slideRoadmap.addText(`${percent}%`, {
-                        x: CHART_START_X + 3.9, y: currentY, w: 0.9, h: 0.25, fontSize: 8, color: '4B5563', align: 'center'
-                    });
-
-                    currentY += 0.25;
-                });
 
                 // --- Disclaimer Text (Bottom Right) ---
-                const DISCLAIMER_X = CHART_START_X + 5.2;
-                const DISCLAIMER_W = CHART_WIDTH - 5.2;
+                const DISCLAIMER_X = 0.5;
+                const DISCLAIMER_W = 9.0;
+                const BILLING_START_Y = 6.4;
 
-                slideRoadmap.addText("Considerações do Planejamento:", {
-                    x: DISCLAIMER_X, y: BILLING_START_Y, w: DISCLAIMER_W, h: 0.3,
-                    fontSize: 12, bold: true, color: '003B5C'
-                });
-
-                const disclaimerText = "Este cronograma macro apresenta uma visão executiva e não exaustiva das atividades previstas. As datas e durações são estimativas preliminares que poderão sofrer ajustes conforme o aprofundamento técnico realizado na fase de 'Planejamento e Análise'.\n\nA validação final deste plano dependerá do detalhamento dos requisitos e da confirmação de premissas junto à equipe do cliente, garantindo a conformidade com os objetivos de negócio.";
+                const disclaimerText = "Este cronograma macro apresenta uma visão executiva e não exaustiva das atividades previstas. As datas e durações são estimativas preliminares que poderão sofrer ajustes conforme o aprofundamento técnico preliminar.";
 
                 slideRoadmap.addText(disclaimerText, {
-                    x: DISCLAIMER_X, y: T_Y, w: DISCLAIMER_W, h: 1.5,
-                    fontSize: 8, color: '4B5563', align: 'justify', valign: 'top'
+                    x: DISCLAIMER_X, y: BILLING_START_Y, w: DISCLAIMER_W, h: 0.5,
+                    fontSize: 8, color: '9CA3AF', align: 'center', valign: 'top', italic: true
                 });
             }
         }

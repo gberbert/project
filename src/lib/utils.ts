@@ -1,6 +1,7 @@
+
+import { addDays, isWeekend, differenceInMinutes, startOfDay, addMinutes, isAfter, isBefore, setHours, setMinutes } from "date-fns";
 import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
-import { addDays, isSameDay, isWeekend } from "date-fns";
 
 export function cn(...inputs: ClassValue[]) {
     return twMerge(clsx(inputs));
@@ -80,21 +81,100 @@ export function calculateBusinessDays(startDate: Date, endDate: Date): number {
 
     let count = 0;
     let current = new Date(startDate);
-    // Reset hours to ensure clean day comparison
     current.setHours(0, 0, 0, 0);
     const end = new Date(endDate);
     end.setHours(0, 0, 0, 0);
 
     while (current <= end) {
-        // 1. Check Weekend
-        if (!isWeekend(current)) {
-            // 2. Check Holiday
-            if (!checkIsHoliday(current)) {
-                count++;
-            }
+        if (!isWeekend(current) && !checkIsHoliday(current)) {
+            count++;
         }
         current = addDays(current, 1);
     }
 
     return count;
+}
+
+// ----- Business Logic Config -----
+const WORK_START_HOUR = 9; // 09:00
+const WORK_END_HOUR = 17;   // 17:00 (Total 8h)
+
+export function calculateBusinessHours(start: Date, end: Date): number {
+    if (start > end) return 0;
+
+    let totalMinutes = 0;
+    let current = new Date(start);
+    current.setHours(0, 0, 0, 0);
+
+    const final = new Date(end);
+    final.setHours(0, 0, 0, 0);
+
+    while (current <= final) {
+        if (!isWeekend(current) && !checkIsHoliday(current)) {
+            // Day limits
+            const dayStart = new Date(current);
+            dayStart.setHours(WORK_START_HOUR, 0, 0, 0);
+
+            const dayEnd = new Date(current);
+            dayEnd.setHours(WORK_END_HOUR, 0, 0, 0);
+
+            // Compare with range
+            const windowStart = isAfter(start, dayStart) ? start : dayStart;
+            const windowEnd = isBefore(end, dayEnd) ? end : dayEnd;
+
+            if (windowStart < windowEnd) {
+                totalMinutes += differenceInMinutes(windowEnd, windowStart);
+            }
+        }
+        current = addDays(current, 1);
+    }
+
+    return Number((totalMinutes / 60).toFixed(1));
+}
+
+export function addBusinessHours(date: Date, hoursToAdd: number): Date {
+    if (hoursToAdd <= 0) return date;
+
+    let minutesRemaining = hoursToAdd * 60;
+    let current = new Date(date);
+
+    while (minutesRemaining > 0) {
+        // Validation: Ensure current time is within working hours
+        // If before start, move to start
+        if (current.getHours() < WORK_START_HOUR) {
+            current.setHours(WORK_START_HOUR, 0, 0, 0);
+        }
+        // If after end, move to next day start
+        if (current.getHours() >= WORK_END_HOUR) {
+            current = addDays(current, 1);
+            current.setHours(WORK_START_HOUR, 0, 0, 0);
+            continue; // Loop check will handle weekend/holiday
+        }
+
+        // Check availability of day
+        if (isWeekend(current) || checkIsHoliday(current)) {
+            current = addDays(current, 1);
+            current.setHours(WORK_START_HOUR, 0, 0, 0);
+            continue;
+        }
+
+        // Available minutes in THIS day
+        const dayEnd = new Date(current);
+        dayEnd.setHours(WORK_END_HOUR, 0, 0, 0);
+
+        const availableMinutes = differenceInMinutes(dayEnd, current);
+
+        if (availableMinutes > minutesRemaining) {
+            // Can finish today
+            current = addMinutes(current, minutesRemaining);
+            minutesRemaining = 0;
+        } else {
+            // Consume rest of day and move to next
+            current = addDays(current, 1);
+            current.setHours(WORK_START_HOUR, 0, 0, 0);
+            minutesRemaining -= availableMinutes;
+        }
+    }
+
+    return current;
 }
