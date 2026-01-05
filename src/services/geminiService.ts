@@ -13,7 +13,7 @@ export interface EstimatedTask {
     role?: string; // Resource role suggestion
     hourly_rate?: number;
     notes?: string;
-    category?: 'planning' | 'development' | 'testing' | 'rollout';
+    category?: 'planning' | 'development' | 'testing' | 'rollout' | 'management';
 }
 
 // --- NEW REFINEMENT INTERFACES ---
@@ -65,6 +65,14 @@ export interface EstimateResult {
 
     // NEW: Scope Delta Analysis
     scope_delta?: ScopeDelta;
+
+    // NEW: Suggested Components (Dynamic Learning)
+    suggested_components?: {
+        name: string;
+        technology: string;
+        hours: number;
+        reasoning: string;
+    }[];
 }
 
 export interface ClarificationQuestion {
@@ -183,12 +191,30 @@ Você é o "Assistente UERJ-FAF", uma IA Especialista em Gerenciamento de Projet
 Criar um Planejamento de Projeto Executivo, contendo não apenas o cronograma, mas também a documentação técnica, premissas e análise de riscos.
 
 DIRETRIZES DE CATEGORIZAÇÃO(CRÍTICO):
-Para garantir a organização correta no sistema, você deve classificar CADA tarefa em uma das 4 categorias do ciclo de vida(SDLC).
+Para garantir a organização correta no sistema, você deve classificar CADA tarefa em uma das 5 categorias do ciclo de vida(SDLC).
 Use o campo "category" no JSON com um destes valores exatos:
-1. ** 'planning' **: Para tarefas de levantamento, requisitos, design, workshops e planejamento.
-2. ** 'development' **: Para codificação, setup de ambiente, implementação de features, banco de dados.
-3. ** 'testing' **: Para QA, testes unitários, testes de integração, bug fixes, homologação.
-4. ** 'rollout' **: Para deploy, treinamento, documentação final, lançamento e acompanhamento(Go - live).
+1. ** 'planning' **: Levantamento, requisitos, design.
+2. ** 'development' **: Codificação, setup, feature impl.
+3. ** 'testing' **: QA, bug fixes, homologação.
+4. ** 'rollout' **: Deploy, treino, go-live.
+5. ** 'management' **: Gestão de Projetos, reuniões de status, controle.
+
+DIRETRIZES DE ALOCAÇÃO E GESTÃO (MANDATÓRIO):
+1. ** REGRA DO FTE INTEIRO (SATURAÇÃO DIÁRIA) - CRÍTICO **:
+   - O nosso modelo de contrato exige ALOCAÇÃO MENSAL FECHADA (Full Time Equivalent).
+   - SIGNIFICA QUE: Se um recurso está ativo no projeto em um determinado mês, ele deve ser considerado "Full Time" (8 horas/dia) durante os dias em que estiver no projeto.
+   - PODE CONSIDERAR OCIOSIDADE: Se a tarefa técnica levar apenas 4h/dia, você DEVE arredondar a alocação para 8h/dia (bloqueando o recurso).
+   - EXEMPLO PRÁTICO:
+     * Se trabalha 10 dias úteis em Março: Aloque 80 horas (10 * 8h).
+     * Se trabalha o mês inteiro (ex: 21 dias úteis) em Abril: Aloque ~168 horas.
+   - NÃO ALOQUE FRAÇÕES (ex: não faça "2h por dia durante 2 meses"). Prefira "8h por dia durante 2 semanas". Concentre o esforço.
+
+2. ** GESTÃO DE PROJETO OBRIGATÓRIA **:
+   - É MANDATÓRIO criar uma tarefa/trilha chamada "Gestão do Projeto & Acompanhamento".
+   - Categoria: 'management'.
+   - Duração: DEVE cobrir TODO o período do projeto (Do Dia 0 até o último dia de Rollout).
+   - Recurso: "Gerente de Projetos (GP)".
+   - Esforço: Aloque horas suficientes para cobrir o acompanhamento mensal contínuo.
 
 DIRETRIZES DE LÓGICA SDLC E PARALELISMO(CRÍTICO):
 1. ** PARALELISMO INTELIGENTE(REGRA DE OURO) **:
@@ -197,7 +223,7 @@ DIRETRIZES DE LÓGICA SDLC E PARALELISMO(CRÍTICO):
    - O 'start_offset_days' dessas tarefas deve ser idêntico ou próximo, limitado apenas por dependências lógicas reais(ex: não dá pra testar sem codar).
 
 2. ** DEPENDÊNCIAS MANDATÓRIAS(RIGOROSO) **:
-- CADA tarefa(exceto a primeira "Milestone Zero") DEVE ter pelo menos um 'predecessor' definido no campo 'dependencies'.
+- CADA tarefa(exceto a primeira e a de Gestão) DEVE ter pelo menos um 'predecessor' definido no campo 'dependencies'.
    - O campo 'dependencies' é um ARRAY de IDs de tarefas anteriores.NUNCA DEIXE VAZIO para tarefas subsequentes.
    - Crie dependências lógicas(ex: Design -> Dev Frontend -> Teste Frontend).
    - Se houver paralelismo, as tarefas paralelas podem ter o MESMO predecessor(Fork) e servirem de dependência para a mesma tarefa futura(Join).
@@ -265,6 +291,9 @@ Exemplo de Saída(Estimativa Completa):
   ],
   "tasks": [
     { "id": "t1", "name": "Kick-off", "type": "task", "category": "planning", "start_offset_days": 0, "duration_days": 1, "role": "PM", "hourly_rate": 200 }
+  ],
+  "suggested_components": [
+      { "name": "Integrador de Biometria", "technology": "React Native", "hours": 32, "reasoning": "Componente específico não listado no padrão." }
   ]
 }
 \`\`\`
@@ -291,12 +320,58 @@ export const DEFAULT_CONTEXT_RULES = `1. **ANÁLISE E CONTEXTO ("documentation")
    - **client_responsibilities**: Gere uma tabela de prazos para o cliente. Onde ele pode bloquear a gente? (ex: "Aprovar Designs até dia 5"). Classifique o Impacto.
    - **raci_matrix**: Defina quem faz o que. Suggested Roles: Project Manager, Lead Dev, Client Sponsor, Client IT.`;
 
+const getPricingConfigContext = () => {
+    try {
+        const stored = localStorage.getItem('PRICING_CONFIG');
+        if (!stored) return "";
+
+        const config = JSON.parse(stored);
+        const matrix = config.matrix || {};
+        const components = config.components || [];
+
+        if (Object.keys(matrix).length === 0 && components.length === 0) return "";
+
+        let text = "\n\n=== DIRETRIZES DE PRECIFICAÇÃO E ESTIMATIVA (CONFIGURAÇÃO TÉCNICA) ===\n";
+        text += "ATENÇÃO: Utilize as tabelas abaixo para calibrar suas estimativas de horas e definição de escopo.\n\n";
+
+        text += "1. MATRIZ DE PESO (Complexidade x Incerteza):\n";
+        text += "Use estes fatores para ponderar a dificuldade das tarefas quando houver incerteza:\n";
+        text += JSON.stringify(matrix, null, 2) + "\n\n";
+
+        text += "2. CATÁLOGO DE OBJETOS E COMPONENTES PADRÃO:\n";
+        text += "Ao descrever o 'scope' e estimar 'tasks', você DEVE quantificar os itens usando estes objetos como referência base (Technology - Name: Avg Hours):\n";
+
+        // Group by tech for better readability for the LLM
+        const grouped: Record<string, string[]> = {};
+        components.forEach((c: any) => {
+            if (!grouped[c.technology]) grouped[c.technology] = [];
+            grouped[c.technology].push(`   - [${c.id}] ${c.name}: ~${c.hours}h`);
+        });
+
+        Object.entries(grouped).forEach(([tech, lines]) => {
+            text += `\n   [${tech}]\n${lines.join('\n')}`;
+        });
+
+        text += "\n\nINSTRUÇÕES MANDATÓRIAS DE ESCOPO E COMPONENTES:\n";
+        text += "1. No campo 'scope' do JSON, você DEVE quantificar o esforço listando os objetos (ex: 'Serão desenvolvidos 5x Screen Container, 3x API Route Handler...').\n";
+        text += "2. COMPONENTES AUSENTES: Se a solução exigir um componente que NÃO existe na lista acima, você DEVE listá-lo no array 'suggested_components' do JSON (ver estrutura abaixo). Crie um nome coerente, defina a tecnologia e estime as horas para um Pleno. NÃO invente IDs, deixe null.\n";
+
+        return text;
+    } catch (e) {
+        console.error("Error reading pricing config for prompt", e);
+        return "";
+    }
+};
+
 export const buildSystemInstruction = (customRules?: string) => {
+    const pricingContext = getPricingConfigContext();
     return `${PROMPT_IDENTITY_AND_RULES}
 
 PROTOCOLO DE INTERAÇÃO E GERAÇÃO DE CONTEÚDO (RIGOROSO):
 
 ${customRules || DEFAULT_CONTEXT_RULES}
+
+${pricingContext}
 
 ${PROMPT_JSON_OUTPUT_FORMAT}`;
 };
@@ -602,7 +677,10 @@ export class GeminiService {
 
         if (!response.ok) {
             const err = await response.text();
-            throw new Error(`Image Generation Failed: ${err}`);
+            console.warn(`Image Generation Failed with ${actualModel}: ${err}. Retrying with fallback...`);
+            // Fallback to a known stable model for images if available or just return error
+            // For now, let's just throw, but clearer.
+            throw new Error(`Image Generation Failed (${actualModel}): ${err}`);
         }
 
         const data = await response.json();
@@ -618,6 +696,220 @@ export class GeminiService {
         }
 
         throw new Error("No image data received from API (Unexpected response format)");
+    }
+
+    async analyzeSlideLayout(imageBase64: string): Promise<{ safe_area: { x: number, y: number, w: number, h: number }, font_color: string }> {
+        if (!this.genAI) throw new Error("Gemini API not configured");
+
+        const model = this.genAI.getGenerativeModel({
+            model: localStorage.getItem('GEMINI_TEXT_MODEL') || "gemini-1.5-flash",
+            generationConfig: { responseMimeType: "application/json" }
+        });
+
+        const prompt = `
+            Analyze this presentation slide background image. 
+            Identify the optimal "safe area" for placing text content. This should be a large, continuous empty or low-contrast space.
+            Avoid covering important visual elements (logos, complex graphics).
+            
+            Return ONLY a JSON object with this structure:
+            {
+                "safe_area": { 
+                    "x": number (percentage 0-100 from left), 
+                    "y": number (percentage 0-100 from top), 
+                    "w": number (percentage 0-100 width), 
+                    "h": number (percentage 0-100 height) 
+                },
+                "font_color": string (hex color code best for contrast on this area, e.g. "#FFFFFF" or "#000000")
+            }
+        `;
+
+        // Strip prefix if present
+        const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, "");
+
+        const result = await model.generateContent([
+            prompt,
+            {
+                inlineData: {
+                    data: cleanBase64,
+                    mimeType: imageBase64.match(/data:([^;]+);base64,/)?.[1] || "image/png"
+                }
+            }
+        ]);
+
+        const text = result.response.text();
+        return this.parseJSON(text);
+    }
+
+    async optimizeContentForSlide(content: string, constraintDescription: string): Promise<string> {
+        if (!this.genAI) throw new Error("Gemini API not configured");
+
+        const model = this.genAI.getGenerativeModel({
+            model: localStorage.getItem('GEMINI_TEXT_MODEL') || "gemini-1.5-flash",
+        });
+
+        const prompt = `
+            You are a Presentation Design Expert.
+            Refactor the following raw content to fit into a specific slide layout: "${constraintDescription}".
+            
+            Global Rules:
+            1. LANGUAGE: PORTUGUESE (BRAZIL) - MANDATORY.
+            2. Maintain ALL critical information and details. Do NOT summarize too aggressively.
+            3. Use concise bullet points for readability, but keep the depth of content.
+            4. Use strong action verbs.
+            5. Output must be in Markdown format (using * or - for bullets, ** for bold).
+            6. Do NOT output a JSON, just the Markdown text.
+            7. Ensure the text fits the description provided, optimizing line breaks if needed.
+
+            Content to Refactor:
+            ${content}
+        `;
+
+        const result = await model.generateContent(prompt);
+        return result.response.text();
+    }
+
+    async distributeContentAcrossSlides(content: string, contentType: string): Promise<{ title_suffix: string, content: string, summary?: string, left_column?: string, right_column?: string, font_size: number, columns: number }[]> {
+        if (!this.genAI) throw new Error("Gemini API not configured");
+
+        const model = this.genAI.getGenerativeModel({
+            model: localStorage.getItem('GEMINI_TEXT_MODEL') || "gemini-1.5-flash",
+            generationConfig: { responseMimeType: "application/json" }
+        });
+
+        // --- STRICT CAPACITY LIMITS (User Defined) ---
+        const CAPACITY_MAP: Record<string, number> = {
+            'context_overview': 1300,
+            'technical_solution': 2400,
+            'architecture_diagram': 500,
+            'implementation_steps': 1750,
+            'testing_strategy': 1650,
+            'scope': 1580,
+            'non_scope': 1580,
+            'budget': 1580,
+            'risks': 1680,
+            'technical_premises': 2500,
+            'team_structure': 2000,
+            'client_responsibilities': 2000,
+            'raci_matrix': 2000
+        };
+
+        const capacity = CAPACITY_MAP[contentType] || 1600;
+
+        // --- LAYOUT STRATEGY SELECTOR ---
+        const TWO_COLUMN_TYPES = [
+            'technical_solution',
+            'implementation_steps',
+            'testing_strategy',
+            'scope',
+            'non_scope',
+            'budget',
+            'risks'
+        ];
+
+        const useTwoColLayout = TWO_COLUMN_TYPES.includes(contentType);
+
+        // --- SPATIAL AWARENESS INJECTION ---
+        const charCount = content.length;
+        const estSlides = Math.max(1, Math.ceil(charCount / capacity));
+
+        let hint = "";
+        let prompt = "";
+
+        if (useTwoColLayout) {
+            // --- NEW TWO-COLUMN PROMPT ---
+            if (estSlides === 1) {
+                hint = `Length: ${charCount} chars. Capacity: ${capacity}. FIT: YES. Use 1 slide with Dual Columns.`;
+            } else {
+                hint = `Length: ${charCount} chars. Capacity: ${capacity}. FIT: NO. Split into approx ${estSlides} slides (Dual Column each).`;
+            }
+
+            prompt = `
+                You are an Expert Presentation Layout Agent.
+                Your goal is to format the provided text into a specialized "Executive Summary + Dual Column" layout.
+                
+                Technical Data:
+                - Content Type: ${contentType}
+                - Input Length: ${charCount} chars
+                - Limit per Slide: ${capacity} chars
+                - Analysis: ${hint}
+                
+                Layout Requirements per Slide:
+                1. **Summary Box (Top)**: Extract a refined, high-impact 1-sentence executive summary/subtitle for the slide.
+                2. **Dual Columns (Body)**: Split the remaining detailed content into two semantically balanced columns (Left and Right).
+                
+                Rules:
+                1. Language: Portuguese (Brazil).
+                2. Balance the text between Left and Right columns visually (approx same length).
+                3. Maintain bullet points and formatting.
+                4. Do NOT split slides unless absolutely necessary (> ${capacity} chars).
+                5. If splitting, ensure each slide has its own Summary and balanced columns.
+
+                Input Text:
+                "${content}"
+
+                Output JSON Schema:
+                [
+                    {
+                        "title_suffix": "", // e.g. "" or "(Cont.)"
+                        "summary": "High-level executive summary of this slide's content",
+                        "left_column": "Markdown text for left column",
+                        "right_column": "Markdown text for right column",
+                        "content": "", // Leave empty for this layout
+                        "font_size": 10, // Default to 10 for dense 2-col layouts
+                        "columns": 2
+                    }
+                ]
+            `;
+
+        } else {
+            // --- STANDARD SINGLE COLUMN PROMPT (Previous Logic) ---
+            if (estSlides === 1) {
+                hint = "Character count: " + charCount + ". Limit: " + capacity + ". FIT: YES. Put ALL this content in 1 slide.";
+            } else {
+                hint = "Character count: " + charCount + ". Limit: " + capacity + ". FIT: NO. Split into approx " + estSlides + " slides.";
+            }
+
+            const layoutConstraint = contentType === 'context_overview'
+                ? "Vertical Column (Narrow): Width 4 inches, Height 4 inches."
+                : "Standard Slide (Wide): Width 9 inches, Height 4 inches.";
+
+            prompt = `
+                You are an Expert Presentation Layout Agent.
+                Your task is to distribute the provided text into one or more slides based STRICTLY on the capacity limits provided.
+                
+                Technical Data:
+                - Content Type: ${contentType}
+                - Input Length: ${charCount} chars
+                - Strict Capacity Limit: ${capacity} chars per slide
+                - Analysis: ${hint}
+                - Layout: ${layoutConstraint}
+                
+                Rules:
+                1. LANGUAGE: Portuguese (Brazil).
+                2. PRIMARY GOAL: Fill each slide up to the capacity limit (${capacity} chars) before creating a new one.
+                3. Do NOT match semantic blocks if it wastes significant space. Prioritize filling the slide.
+                4. If the text fits in the limit, DO NOT SPLIT, absolutely forbidden.
+                5. ALWAYS use a single full-width column (columns: 1).
+                6. Return a JSON structure defining the slides.
+
+                Input Text:
+                "${content}"
+
+                Output JSON Schema:
+                [
+                    {
+                        "title_suffix": "", // e.g. "" for first slide, "(Cont.)" for others
+                        "content": "markdown content for this specific slide",
+                        "font_size": 11, // Default 11, reduce to 10 or 9 ONLY if very close to limit overflow
+                        "columns": 1
+                    }
+                ]
+            `;
+        }
+
+        const result = await model.generateContent(prompt);
+        const text = result.response.text();
+        return this.parseJSON(text);
     }
 }
 

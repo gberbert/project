@@ -6,11 +6,23 @@ interface MarkdownRendererProps {
 }
 
 export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, className = '' }) => {
-    if (!content) return null;
+    if (content === null || content === undefined) return null;
+
+    let safeContent: string;
+    if (typeof content !== 'string') {
+        console.warn("MarkdownRenderer received non-string content:", content);
+        if (typeof content === 'object') {
+            safeContent = "```json\n" + JSON.stringify(content, null, 2) + "\n```";
+        } else {
+            safeContent = String(content);
+        }
+    } else {
+        safeContent = content;
+    }
 
     // Pre-processing to fix common AI formatting issues
     // 1. " - **Text**" -> "\n- **Text**" (convert inline bullets to new lines)
-    let processedContent = content.replace(/([^\n])\s-\s\*\*/g, '$1\n- **');
+    let processedContent = safeContent.replace(/([^\n])\s-\s\*\*/g, '$1\n- **');
 
     // 2. Ensure headers have newlines before them
     processedContent = processedContent.replace(/([^\n])(#{3,})/g, '$1\n$2');

@@ -3,6 +3,7 @@ import PptxGenJS from 'pptxgenjs';
 import { Project, RaciItem, ClientResponsibility, Task } from '../types';
 import { getImage } from '../lib/slideStorage';
 import { calculateBusinessDays } from '../lib/utils';
+import { geminiService } from './geminiService';
 
 interface OverlayText {
     id: string;
@@ -50,6 +51,8 @@ interface GenerationOptions {
     tasks?: Task[];
     viewMode?: string;
     templateConfig?: TemplateConfig;
+    smartDesign?: boolean;
+    onStatusUpdate?: (status: string) => void;
 }
 
 export const generateProposalPpt = async (project: Project, options: GenerationOptions = {}) => {
@@ -58,11 +61,11 @@ export const generateProposalPpt = async (project: Project, options: GenerationO
     // --- Layout Configuration ---
     pptx.layout = 'LAYOUT_16x9';
 
-    // Define Colors (Sober Blue Theme)
-    const COLOR_PRIMARY = '00204A'; // Navy Blue (Sober)
-    const COLOR_SECONDARY = '0072BC'; // Brand Blue
-    const COLOR_ACCENT = 'E6F0F9'; // Light Blue Background
-    const COLOR_TEXT = '1F2937';
+    // Define Colors (Modern Tech Theme)
+    const COLOR_PRIMARY = '111827'; // Dark Gray/Black (Inter-like)
+    const COLOR_SECONDARY = '4F46E5'; // Indigo 600 (Vibrant)
+    const COLOR_ACCENT = 'EEF2FF'; // Indigo 50 (Very light)
+    const COLOR_TEXT = '374151'; // Gray 700
 
     // --- Load Branding Images ---
     let brandingImages: { logo?: string, header?: string, footer?: string } = {};
@@ -89,77 +92,74 @@ export const generateProposalPpt = async (project: Project, options: GenerationO
         }
     }
 
-    // --- Helper: Add Branded Slide ---
+    // --- Helper: Add Branded Slide (Modern) ---
     const addBrandedSlide = (title?: string) => {
         const slide = pptx.addSlide();
 
+        // Default Font
+        slide.color = COLOR_TEXT;
+
         // Add Header Image
         if (brandingImages.header) {
-            slide.addImage({ data: brandingImages.header, x: 0, y: 0, w: '100%', h: 1.0 }); // Approx height
+            slide.addImage({ data: brandingImages.header, x: 0, y: 0, w: '100%', h: 1.0 });
+        } else {
+            // Modern Geometric Accent if no header
+            slide.addShape(pptx.ShapeType.rect, { x: 9.0, y: 0, w: 1.0, h: 0.15, fill: { color: COLOR_SECONDARY } });
+            slide.addShape(pptx.ShapeType.rect, { x: 9.4, y: 0, w: 0.6, h: 0.3, fill: { color: COLOR_SECONDARY, transparency: 50 } });
         }
 
         // Add Footer Image
         if (brandingImages.footer) {
-            // Slide H is usually 5.625 for 16x9 (10x5.625 inches)
             slide.addImage({ data: brandingImages.footer, x: 0, y: 5.625 - 0.8, w: '100%', h: 0.8 });
+        } else {
+            // Minimal Footer Page Number
+            slide.addText('CONFIDENCIAL', { x: 0.5, y: 5.2, fontSize: 8, color: '9CA3AF' });
         }
 
         // Add Logo
         if (brandingImages.logo) {
             const w = brandingDims.logo?.w || 1.42;
             const h = brandingDims.logo?.h || 0.29;
-
             // Default Position Logic: Top Right
-            let x = 10 - w - 0.18;
-            let y = 0.15;
+            let x = 10 - w - 0.3;
+            let y = 0.25;
 
-            // Override with configured values if present
-            if (options.templateConfig?.branding?.logoX !== undefined) {
-                x = options.templateConfig.branding.logoX;
-            }
-            if (options.templateConfig?.branding?.logoY !== undefined) {
-                y = options.templateConfig.branding.logoY;
-            }
+            if (options.templateConfig?.branding?.logoX !== undefined) x = options.templateConfig.branding.logoX;
+            if (options.templateConfig?.branding?.logoY !== undefined) y = options.templateConfig.branding.logoY;
 
             slide.addImage({ data: brandingImages.logo, x: x, y: y, w: w, h: h });
         }
 
-        // Add Title if provided (Standardized)
+        // Add Title if provided (Modern Style)
         if (title) {
             // Defaults
-            let tX = 0.5;
-            let tY = 0.5;
-            let lX = 0.5;
-            let lY = 0.9;
-            let lW = 9.0;
+            let tX = 0.6; // Slightly more right to allow bar
+            let tY = 0.45;
 
             if (options.templateConfig?.branding) {
                 const b = options.templateConfig.branding;
                 if (b.titleX !== undefined) tX = b.titleX;
                 if (b.titleY !== undefined) tY = b.titleY;
-                if (b.lineX !== undefined) lX = b.lineX;
-                if (b.lineY !== undefined) lY = b.lineY;
-                if (b.lineWidth !== undefined) lW = b.lineWidth;
             }
 
-            // Ensure Title has ample width and fixed height to prevent collapsing
-            const safeW = Math.max(4.0, 9.8 - tX);
-            slide.addText(title, {
-                x: tX, y: tY, w: safeW, h: 0.38,
-                fontSize: 20, color: COLOR_PRIMARY, bold: true, align: 'left',
-                isTextBox: true, autoFit: false
+            // 1. Accent Bar (Vertical)
+            slide.addShape(pptx.ShapeType.rect, {
+                x: tX - 0.2, y: tY + 0.05, w: 0.08, h: 0.35,
+                fill: { color: COLOR_SECONDARY }
             });
-            // Decorative line below title
-            slide.addShape(pptx.ShapeType.line, {
-                x: lX, y: lY, w: lW, h: 0, line: { color: COLOR_SECONDARY, width: 2 }
+
+            // 2. Title Text
+            slide.addText(title, {
+                x: tX, y: tY, w: 8.0, h: 0.5,
+                fontSize: 24, color: COLOR_PRIMARY, bold: true, align: 'left', fontFace: 'Segoe UI',
+                isTextBox: true, autoFit: false
             });
         }
 
         return slide;
     };
 
-    // --- Helper: Markdown Parser ---
-    // Parses bold (**text**), headers (#), and handles line breaks/bullets
+    // --- Helper: Markdown Parser (Styled) ---
     const parseMarkdown = (text: string, fontSize: number): any[] => {
         const textObjects: any[] = [];
         const lines = text.split('\n');
@@ -167,21 +167,20 @@ export const generateProposalPpt = async (project: Project, options: GenerationO
         lines.forEach((line, lineIndex) => {
             const trimmed = line.trim();
             if (trimmed.length === 0) {
-                // Empty line -> simple break
                 if (lineIndex < lines.length - 1) {
                     textObjects.push({
                         text: '',
-                        options: { breakLine: true, fontSize: fontSize, paraSpaceBefore: 0, paraSpaceAfter: 0 }
+                        options: { breakLine: true, fontSize: fontSize * 0.5 } // Smaller gap
                     });
                 }
                 return;
             }
 
-            // Check header or bullet
             let isBullet = false;
             let forceBold = false;
             let extraFontSize = 0;
             let content = line;
+            let textColor = COLOR_TEXT;
 
             if (trimmed.startsWith('#')) {
                 const match = trimmed.match(/^(#+)\s+(.*)/);
@@ -189,14 +188,18 @@ export const generateProposalPpt = async (project: Project, options: GenerationO
                     const level = match[1].length;
                     content = match[2] || '';
                     forceBold = true;
-                    // H1=+6, H2=+4, H3+=+2
-                    if (level === 1) extraFontSize = 6;
-                    else if (level === 2) extraFontSize = 4;
-                    else extraFontSize = 2;
+                    if (level === 1) { extraFontSize = 4; textColor = COLOR_SECONDARY; } // H1 Indigo
+                    else if (level === 2) { extraFontSize = 2; textColor = COLOR_PRIMARY; } // H2 Dark
+                    else { forceBold = true; } // H3 Bold
                 }
-            } else if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
-                isBullet = true;
-                content = trimmed.substring(2);
+            } else if (trimmed.startsWith('-') || trimmed.startsWith('*')) {
+                // Check if it's likely a bullet (starts with - or * followed by space or is just the char)
+                // Use regex to strip the bullet char and ANY leading whitespace from the remainder
+                const bulletMatch = trimmed.match(/^[-*]\s*(.*)/);
+                if (bulletMatch) {
+                    isBullet = true;
+                    content = bulletMatch[1].trim(); // Strictly trim the content
+                }
             }
 
             // Parse Bold: split by **
@@ -238,7 +241,7 @@ export const generateProposalPpt = async (project: Project, options: GenerationO
 
 
     // --- Core Content Generators ---
-    const generateProjectContent = () => {
+    const generateProjectContent = async () => {
 
         // --- 1. Cover Slide (REMOVED: User uses custom image slide) ---
         // const slideCover = addBrandedSlide(); // No title for cover
@@ -258,7 +261,14 @@ export const generateProposalPpt = async (project: Project, options: GenerationO
 
 
         // --- Dynamic Documentation Slides ---
+        if (!project.documentation && options.smartDesign) {
+            options.onStatusUpdate?.("AVISO: Documentação ausente. Ignorando slides inteligentes.");
+        }
+
         if (project.documentation) {
+            console.log("Docs found:", Object.keys(project.documentation));
+            console.log("Smart Design Enabled:", options.smartDesign);
+
             // Check if context is used in custom slides
             const contextUsedInCustomSlides = options.templateConfig?.slides.some(s =>
                 s.type === 'custom' && s.overlays?.some(o => o.text.toLowerCase().includes('{contexto}'))
@@ -271,12 +281,17 @@ export const generateProposalPpt = async (project: Project, options: GenerationO
             const finalKeys = [...orderedKeys, ...otherKeys];
             const docs = project.documentation;
 
-            finalKeys.forEach((key) => {
+            for (const key of finalKeys) {
+                console.log(`Processing Auto Slide: ${key}`);
+
+                // --- EXCLUDE BUDGET (Moved to Custom Template Tag) ---
+                if (key === 'budget') continue;
+
                 const content = docs ? docs[key as keyof typeof docs] : undefined;
-                if (!content || (content as string).trim().length === 0) return;
+                if (!content || (content as string).trim().length === 0) continue;
 
                 // Skip Context Overview if used in custom slide
-                if (key === 'context_overview' && contextUsedInCustomSlides) return;
+                if (key === 'context_overview' && contextUsedInCustomSlides) continue;
 
                 let title = key.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
                 const titleMap: Record<string, string> = {
@@ -288,6 +303,160 @@ export const generateProposalPpt = async (project: Project, options: GenerationO
                     'non_scope': 'Não Escopo (Fora do Perímetro)'
                 };
                 if (titleMap[key]) title = titleMap[key];
+
+                if (options.smartDesign) {
+                    try {
+                        const statusMsg = `Agente de Layout (IA): ${title}`;
+                        options.onStatusUpdate?.(statusMsg);
+
+                        // 2. Optimize Content
+                        const constraintDesc = key === 'context_overview' ? 'context' : 'standard';
+                        const optimizedText = await geminiService.optimizeContentForSlide(content as string, constraintDesc);
+
+                        // Call the Autonomous Agent to Plan the Distribution with SPECIFIC CONTENT TYPE KEY
+                        const slidePlan = await geminiService.distributeContentAcrossSlides(
+                            optimizedText,
+                            key
+                        );
+
+                        // Execute the Plan
+                        slidePlan.forEach((planItem, idx) => {
+                            const slideTitle = idx === 0 ? title : `${title} ${planItem.title_suffix}`;
+                            const slide = addBrandedSlide(slideTitle);
+
+                            // --- NEW: DUAL COLUMN + SUMMARY LAYOUT ---
+                            if (planItem.summary && planItem.left_column && planItem.right_column) {
+                                // 1. Summary
+                                slide.addText(planItem.summary, {
+                                    x: 0.5, y: 1.0, w: '90%', h: 0.8,
+                                    fontSize: 14, color: COLOR_TEXT, bold: true,
+                                    valign: 'top', align: 'left',
+                                    fill: { color: 'F5F5F5' },
+                                    paraSpaceBefore: 0, paraSpaceAfter: 0
+                                });
+
+                                // 2. Render Left Column (IMG3)
+                                const leftOps = parseMarkdown(planItem.left_column, planItem.font_size || 10);
+                                slide.addText(leftOps, {
+                                    x: 0.5, y: 2.0, w: 4.3, h: 3.5,
+                                    color: COLOR_TEXT, valign: 'top', align: 'justify',
+                                    paraSpaceBefore: 0, paraSpaceAfter: 0
+                                });
+
+                                // 3. Render Right Column (IMG4)
+                                const rightOps = parseMarkdown(planItem.right_column, planItem.font_size || 10);
+                                slide.addText(rightOps, {
+                                    x: 5.1, y: 2.0, w: 4.3, h: 3.5,
+                                    color: COLOR_TEXT, valign: 'top', align: 'justify',
+                                    paraSpaceBefore: 0, paraSpaceAfter: 0
+                                });
+
+                            }
+                            // --- LEGACY/STANDARD LAYOUTS ---
+                            else {
+                                const textOps = parseMarkdown(planItem.content || "", planItem.font_size || 11);
+
+                                if (key === 'context_overview') {
+                                    slide.addText(textOps, {
+                                        x: 0.5, y: 1.2, w: '45%', h: 4, color: COLOR_TEXT, align: 'justify', valign: 'top',
+                                        paraSpaceBefore: 0, paraSpaceAfter: 0
+                                    });
+
+                                    if (idx === 0) {
+                                        slide.addText("Espaço para Diagrama / Imagem", {
+                                            x: 5.5, y: 1.2, w: '40%', h: 3.5, fontSize: 14, color: 'AAAAAA', align: 'center',
+                                            shape: pptx.ShapeType.rect, fill: { color: 'FFFFFF' }, line: { color: 'DDDDDD', dashType: 'dash' }
+                                        });
+                                    }
+                                } else {
+                                    slide.addText(textOps, {
+                                        x: 0.5, y: 1.2, w: '90%', h: 4, color: COLOR_TEXT, valign: 'top',
+                                        paraSpaceBefore: 0, paraSpaceAfter: 0
+                                    });
+                                }
+                            }
+                        });
+
+
+                        // --- ARCHITECTURE DIAGRAM INJECTION (Post Technical Solution) ---
+                        if (key === 'technical_solution') {
+                            options.onStatusUpdate?.("Gerando Arquitetura de Solução (IA Image)...");
+                            try {
+                                const archContext = content as string;
+                                // 1. Get Prompt
+                                const archPrompt = await geminiService.generateArchitecturePrompt(archContext);
+                                console.log("Architecture Prompt Generated:", archPrompt);
+
+                                // 2. Generate Image
+                                const archImageBase64 = await geminiService.generateImage(archPrompt);
+
+                                // 3. Generate Explanatory Text (Summary)
+                                const archSummaryPrompt = `
+                                    Analise a seguinte solução técnica e gere um resumo explicativo conciso para acompanhar o diagrama de arquitetura.
+                                    Foque nos 3 ou 4 pilares principais da tecnologia escolhida.
+                                    Use bullet points curtos.
+                                    Limite total: 600 caracteres.
+                                    
+                                    Contexto:
+                                    ${archContext}
+                                `;
+
+                                // We reuse optimizeContent logic or model direct call. 
+                                // To be safe and quick, let's use the model directly via a helper or just reuse optimizeContent with a custom constraint.
+                                // Actually, let's just use optimizeContentForSlide with a "very_short" constraint if possible, but the prompt is hardcoded there.
+                                // Let's simplify: We'll modify optimize logic or just create a new prompt here.
+                                // Since I can't easily change the service method signature without viewing it, I will use `optimizeContentForSlide` with a "context" constraint which generates a shorter summary, OR I will just call the global model if I had access.
+
+                                // Better approach: Modify the `generateArchitecturePrompt` to ALSO return a summary? No, separation of concerns.
+                                // Let's assume `geminiService` calls are cheap. I'll use `optimizeContentForSlide` passing a custom constraint string that I know the prompt will interpret, or just rely on 'context' type which is narrow.
+
+                                const explainText = await geminiService.optimizeContentForSlide(archContext, "Summarize as 3-5 bullet points for a sidebar text box next to a diagram. Max 500 chars.");
+
+                                // 4. Add Slide
+                                const archSlide = addBrandedSlide("Arquitetura da Solução");
+
+                                // Image on Right (as per previous code, x=3.5)
+                                archSlide.addImage({
+                                    data: archImageBase64,
+                                    x: 3.5, y: 1.2, w: 6.0, h: 3.37
+                                });
+
+                                // Explanatory Text on Left (The "indicated position")
+                                // Dimensions: H 8.72cm (~3.43in), W 7.14cm (~2.81in)
+                                // Pos: x=0.5, y=1.2
+                                const archTextOps = parseMarkdown(explainText, 10);
+                                archSlide.addText(archTextOps, {
+                                    x: 0.5, y: 1.2, w: 2.8, h: 3.4,
+                                    fontSize: 10, color: COLOR_TEXT, align: 'left', valign: 'top',
+                                    paraSpaceBefore: 5 // small gap between bullets
+                                });
+
+                                // Add prompt note smaller at bottom
+                                archSlide.addText(`Prompt IA: ${archPrompt.substring(0, 100)}...`, {
+                                    x: 0.5, y: 5.4, w: 9, h: 0.2, fontSize: 8, color: '999999'
+                                });
+
+                            } catch (archErr: any) {
+                                console.error("Architecture Gen Failed", archErr);
+                                const errSlide = addBrandedSlide("Arquitetura da Solução");
+                                errSlide.addText(`Não foi possível gerar a imagem de arquitetura.\nErro: ${archErr.message}`, {
+                                    x: 0.5, y: 2.0, w: 9, fontSize: 12, color: 'FF0000', align: 'center'
+                                });
+                            }
+                        }
+
+                        // Success! Continue to next item.
+                        continue;
+
+                    } catch (err: any) {
+                        console.error(`Smart Slide verification failed for ${title}, using raw content.`, err);
+                        const errorMsg = err?.message || "Erro desconhecido";
+                        options.onStatusUpdate?.(`Aviso IA: ${errorMsg}. Usando texto original...`);
+
+                        await new Promise(resolve => setTimeout(resolve, 1500));
+                        // Fallback proceeds below
+                    }
+                }
 
                 const slide = addBrandedSlide(title);
 
@@ -311,7 +480,7 @@ export const generateProposalPpt = async (project: Project, options: GenerationO
                         paraSpaceBefore: 0, paraSpaceAfter: 0
                     });
                 }
-            });
+            }
         }
 
         // --- Technical Premises ---
@@ -343,7 +512,7 @@ export const generateProposalPpt = async (project: Project, options: GenerationO
                     { text: row.informed, options: { fontSize: 10 } }
                 ]);
             });
-            slideRaci.addTable(tableData, { x: 0.5, y: 1.2, w: 9, fontSize: 10, border: { pt: 1, color: 'DDDDDD' }, autoPage: true, rowH: 0.4 });
+            slideRaci.addTable(tableData, { x: 0.5, y: 1.2, w: 9, colW: [4.0, 1.25, 1.25, 1.25, 1.25], fontSize: 10, border: { pt: 1, color: 'DDDDDD' }, autoPage: true, rowH: 0.4 });
         }
 
         // --- Team Structure ---
@@ -361,11 +530,23 @@ export const generateProposalPpt = async (project: Project, options: GenerationO
                     { text: member.responsibilities.join(", "), options: { fontSize: 10 } }
                 ]);
             });
-            slideTeam.addTable(tableData, { x: 0.5, y: 1.2, w: 9, fontSize: 10, border: { pt: 1, color: 'DDDDDD' }, rowH: 0.5, autoPage: true });
+            // Optimized Layout: Wider (9.5), Tighter Columns, lower Y starting point if needed
+            // User wants max usage. Slide width is 10. 
+            // x=0.25, w=9.5 leaves 0.25 margin on sides.
+            slideTeam.addTable(tableData, {
+                x: 0.25, y: 1.1, w: 9.5,
+                colW: [3.0, 0.8, 5.7], // More space for responsibilities
+                fontSize: 10,
+                border: { pt: 1, color: 'E5E7EB' },
+                rowH: 0.35, // Tighter rows
+                autoPage: true,
+                autoPageCharWeight: 0.1, // Adjust if needed
+                autoPageLineWeight: 0.5
+            });
 
-            // Add concise resource cost note
+            // Add concise resource cost note - Lower position
             slideTeam.addText("Nota: A alocação considera dedicação variável conforme a fase do projeto. O dimensionamento final pode ser ajustado na etapa de contrato.", {
-                x: 0.5, y: 5.2, w: 9, h: 0.3, fontSize: 9, color: '666666', italic: true
+                x: 0.5, y: 5.3, w: 9, h: 0.3, fontSize: 8, color: '9CA3AF', italic: true
             });
         }
 
@@ -396,49 +577,49 @@ export const generateProposalPpt = async (project: Project, options: GenerationO
 
             if (phases.length > 0) {
                 const isWeekly = options.viewMode === 'Week';
-                let minDate = new Date(phases[0].start);
-                let maxDate = new Date(phases[0].end);
+                // Filter phases to exclude Management for the slide
+                const visiblePhases = phases.filter(p => !p.id.includes('phase-mgmt'));
 
-                phases.forEach(p => {
-                    const s = new Date(p.start);
-                    const e = new Date(p.end);
-                    if (s < minDate) minDate = s;
-                    if (e > maxDate) maxDate = e;
-                });
-                maxDate.setDate(maxDate.getDate() + 15);
+                const minDate = new Date(Math.min(...visiblePhases.map(p => new Date(p.start).getTime())));
+                const maxDate = new Date(Math.max(...visiblePhases.map(p => new Date(p.end).getTime())));
 
-                if (isWeekly) {
-                    minDate.setDate(minDate.getDate() - minDate.getDay());
-                } else {
-                    minDate.setDate(1);
-                }
+                // Add buffer
+                minDate.setDate(minDate.getDate() - 5);
+                maxDate.setDate(maxDate.getDate() + 10);
 
-                // Layout Constants
+                const totalDuration = (maxDate.getTime() - minDate.getTime()) / (1000 * 3600 * 24);
+                // Removed redeclaration of isWeekly
+                // const isWeekly = totalDuration < 120; 
+
                 const CHART_START_X = 0.5;
-                const CHART_WIDTH = 9.2;
-                const LABEL_WIDTH = 2.0;
+                const CHART_Y = 1.3;
+                const CHART_WIDTH = 9.0;
+                const LABEL_WIDTH = 2.5;
+                const ROW_HEIGHT = isWeekly ? 0.7 : 0.6;
+                const HEADER_H = 0.5;
+                const HEADER_Y = CHART_Y;
+                const ROW_START_Y = HEADER_Y + HEADER_H;
 
-                const HEADER_Y = 1.0;
-                const HEADER_H = 0.69;
-                const ROW_START_Y = HEADER_Y + HEADER_H + 0.1;
-                const ROW_HEIGHT = 0.45;
+                const PALETTE = ['4F46E5', '4338CA', '6366F1', '818CF8', '3730A3', '312E81']; // Modern Indigo Palette
 
-                const pxPerDay = isWeekly
-                    ? (0.16 / 7)
-                    : (0.21 / 30);
+                // Title Area Total Info
+                const totalHours = visiblePhases.reduce((acc, p) => acc + (calculateBusinessDays(new Date(p.start), new Date(p.end)) * 8), 0);
+                const totalDays = visiblePhases.reduce((acc, p) => acc + calculateBusinessDays(new Date(p.start), new Date(p.end)), 0);
 
-                const PALETTE = ['0072BC', '003B5C', '4B9CD3', '2C5282', '1A365D', '5198D6']; // Sober Blue
-
-                // Add Total Project Duration Label (Top Left Corner)
-                const totalBizDays = calculateBusinessDays(minDate, maxDate);
-                const totalBizHours = totalBizDays * 8;
-                slideRoadmap.addText(`Total Estimado:\n${totalBizDays} dias úteis / ${totalBizHours}h`, {
-                    x: CHART_START_X, y: HEADER_Y, w: LABEL_WIDTH, h: HEADER_H,
-                    fontSize: 10, color: '1F2937', bold: true, align: 'center', valign: 'middle',
-                    fill: { color: 'F3F4F6' }, line: { color: 'FFFFFF', width: 1 }
+                slideRoadmap.addShape(pptx.ShapeType.rect, {
+                    x: CHART_START_X, y: 1.25, w: LABEL_WIDTH, h: 0.8,
+                    fill: { color: 'F3F4F6' }
+                });
+                slideRoadmap.addText(`Total Estimado:\n${totalDays} dias úteis / ${totalHours}h`, {
+                    x: CHART_START_X, y: 1.3, w: LABEL_WIDTH, h: 0.7,
+                    fontSize: 10, bold: true, align: 'center', color: '1F2937'
                 });
 
-                // Draw Timeline Header...
+                // Calculate px per day
+                const timeSpan = maxDate.getTime() - minDate.getTime();
+                const pxPerDay = (CHART_WIDTH - LABEL_WIDTH) / (timeSpan / (1000 * 3600 * 24));
+
+                // Draw Timeline Header
                 let currTime = new Date(minDate);
                 let colIndex = 0;
 
@@ -475,7 +656,7 @@ export const generateProposalPpt = async (project: Project, options: GenerationO
                     });
 
                     slideRoadmap.addShape(pptx.ShapeType.line, {
-                        x: labelX, y: ROW_START_Y, w: 0, h: (phases.length * ROW_HEIGHT) + 0.1,
+                        x: labelX, y: ROW_START_Y, w: 0, h: (visiblePhases.length * ROW_HEIGHT) + 0.1,
                         line: { color: 'E5E7EB', width: 1 }
                     });
 
@@ -484,7 +665,7 @@ export const generateProposalPpt = async (project: Project, options: GenerationO
                 }
 
                 // Draw Phases
-                phases.forEach((phase, index) => {
+                visiblePhases.forEach((phase, index) => {
                     const yPos = ROW_START_Y + (index * ROW_HEIGHT);
                     const color = PALETTE[index % PALETTE.length];
 
@@ -663,6 +844,10 @@ export const generateProposalPpt = async (project: Project, options: GenerationO
                                 text = text.replace(/{data}/gi, dateStr);
                                 text = text.replace(/{contexto}/gi, contextContent);
 
+                                // NEW: [budget] Tag replacement
+                                const budgetContent = project.documentation?.budget || "";
+                                text = text.replace(/\[budget\]/gi, budgetContent);
+
                                 const textItems = parseMarkdown(text, ol.fontSize);
 
                                 s.addText(textItems, {
@@ -690,7 +875,7 @@ export const generateProposalPpt = async (project: Project, options: GenerationO
             }
         } else if (slideItem.type === 'automatic') {
             console.log("Generating automatic project content...");
-            generateProjectContent();
+            await generateProjectContent();
         }
     }
 

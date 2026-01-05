@@ -448,6 +448,13 @@ const SlideOverlayEditor = ({ slide, preview, branding, logoPreview, onClose, on
                                         >
                                             + {`{contexto}`}
                                         </button>
+                                        <button
+                                            onClick={() => handleUpdate(selected.id, { text: selected.text + "[budget]" })}
+                                            className="px-2 py-1 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 rounded text-[10px] font-medium transition-colors"
+                                            title="Conteúdo: Budget"
+                                        >
+                                            + [budget]
+                                        </button>
                                     </div>
                                     <p className="text-[10px] text-gray-400 mt-1">Variáveis serão preenchidas ao gerar o PPT.</p>
                                 </div>
@@ -685,9 +692,11 @@ const SortableSlideItem = ({ slide, onDelete, onEdit, preview }: { slide: SlideC
     );
 };
 
+import { PricingWeightSettings } from './PricingWeightSettings';
+
 export const SettingsView = () => {
     const { user, isAdmin, approveUser, toggleAI } = useAuth();
-    const [activeTab, setActiveTab] = useState<'general' | 'prompts' | 'template'>('general');
+    const [activeTab, setActiveTab] = useState<'general' | 'prompts' | 'template' | 'pricing'>('general');
 
     // Config State
     const [apiKey, setApiKey] = useState('');
@@ -709,6 +718,7 @@ export const SettingsView = () => {
     const [templateConfig, setTemplateConfig] = useState<TemplateConfig>(DEFAULT_TEMPLATE_CONFIG);
     const [logoPreview, setLogoPreview] = useState<string | null>(null);
     const [editingSlide, setEditingSlide] = useState<string | null>(null);
+    const [isSmartDesign, setIsSmartDesign] = useState(false);
     const [users, setUsers] = useState<AppUser[]>([]);
     useEffect(() => {
         const storedKey = localStorage.getItem('GEMINI_API_KEY');
@@ -731,6 +741,9 @@ export const SettingsView = () => {
 
         const storedArchitecture = localStorage.getItem('GEMINI_ARCHITECTURE_PROMPT');
         setArchitecturePrompt(storedArchitecture || DEFAULT_ARCHITECTURE_PROMPT);
+
+        const storedSmart = localStorage.getItem('PPT_SMART_DESIGN_ENABLED');
+        if (storedSmart === 'true') setIsSmartDesign(true);
 
         const storedTemplate = localStorage.getItem('PPT_TEMPLATE_CONFIG');
         if (storedTemplate) {
@@ -774,6 +787,10 @@ export const SettingsView = () => {
             localStorage.setItem('PPT_TEMPLATE_CONFIG', JSON.stringify(templateConfig));
         }
     }, [templateConfig]);
+
+    useEffect(() => {
+        localStorage.setItem('PPT_SMART_DESIGN_ENABLED', String(isSmartDesign));
+    }, [isSmartDesign]);
 
     // State for Slide Previews (thumbnails)
     const [slidePreviews, setSlidePreviews] = useState<Record<string, string>>({});
@@ -1057,12 +1074,19 @@ export const SettingsView = () => {
                 <div className="flex gap-1 bg-gray-50 p-1 rounded-xl border border-gray-200 overflow-x-auto max-w-full">
                     <TabButton id="general" label="Geral" icon={SettingsIcon} />
                     <TabButton id="template" label="Template PPT" icon={LayoutTemplate} />
+                    <TabButton id="pricing" label="Peso de Precificação" icon={SettingsIcon} />
                     <TabButton id="prompts" label="Prompt IA" icon={FileText} />
                 </div>
             </div>
 
             {/* Content Area */}
             <div className="flex-1 overflow-hidden relative">
+                {activeTab === 'pricing' && (
+                    <div className="h-full animate-in fade-in slide-in-from-bottom-2 duration-300">
+                        <PricingWeightSettings />
+                    </div>
+                )}
+
                 {activeTab === 'general' && (
                     <div className="h-full overflow-y-auto p-4 md:p-6 lg:p-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
                         <div className="max-w-7xl mx-auto space-y-6">
@@ -1234,6 +1258,29 @@ export const SettingsView = () => {
                                         Branding Global
                                     </h3>
                                     <p className="text-xs text-gray-500 mb-6">Estes elementos serão aplicados aos Slides Automáticos.</p>
+
+                                    <div className="mb-6 p-4 bg-indigo-50 rounded-lg border border-indigo-100">
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <h4 className="text-sm font-bold text-indigo-900 flex items-center gap-2">
+                                                    <Sparkles size={16} className="text-indigo-600" />
+                                                    Smart Slide Engine (IA)
+                                                </h4>
+                                                <p className="text-xs text-indigo-700 mt-1">
+                                                    Gera imagens de fundo, analisa layouts e otimiza textos autom.
+                                                </p>
+                                            </div>
+                                            <label className="relative inline-flex items-center cursor-pointer">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={isSmartDesign}
+                                                    onChange={(e) => setIsSmartDesign(e.target.checked)}
+                                                    className="sr-only peer"
+                                                />
+                                                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                                            </label>
+                                        </div>
+                                    </div>
 
                                     <div className="space-y-4">
                                         {/* LOGO */}

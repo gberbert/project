@@ -347,6 +347,8 @@ function App() {
     const [editingDocKey, setEditingDocKey] = useState<string | null>(null);
     const [editingPremises, setEditingPremises] = useState(false);
     const [isGeneratingArchitecture, setIsGeneratingArchitecture] = useState(false);
+    const [isGeneratingPPT, setIsGeneratingPPT] = useState(false);
+    const [generationStatus, setGenerationStatus] = useState<string>('');
 
     // --- Editing Handlers ---
     const handleSaveDoc = (key: string, newContent: string) => {
@@ -810,44 +812,56 @@ function App() {
         const project = projects.find(p => p.id === selectedProjectId);
         if (!project) return;
 
-        const projectTasks = dbTasks.filter(t => t.projectId === selectedProjectId);
-        let templateConfig = undefined;
+        setIsGeneratingPPT(true); // Start Loading
+        setGenerationStatus('Inicializando motor de apresentação...');
+
         try {
-            const storedTemplate = localStorage.getItem('PPT_TEMPLATE_CONFIG');
-            if (storedTemplate) {
-                templateConfig = JSON.parse(storedTemplate);
-                console.log("Loaded Template Config:", templateConfig);
+            const projectTasks = dbTasks.filter(t => t.projectId === selectedProjectId);
+            let templateConfig = undefined;
+            try {
+                const storedTemplate = localStorage.getItem('PPT_TEMPLATE_CONFIG');
+                if (storedTemplate) {
+                    templateConfig = JSON.parse(storedTemplate);
+                    console.log("Loaded Template Config:", templateConfig);
+                } else {
+                    console.warn("No Template Config found in localStorage");
+                }
+            } catch (e) {
+                console.error("Error parsing PPT template config", e);
+            }
+
+            const ganttEl = document.getElementById('gantt-chart-area');
+            const isSmartDesign = localStorage.getItem('PPT_SMART_DESIGN_ENABLED') === 'true';
+
+            if (!ganttEl) {
+                // Even if no visual chart, we can generate the Native Roadmap if we have tasks
+                if (confirm("Visualização do Cronograma não encontrada (Necessário estar na aba 'Contronograma' para captura de imagem). Deseja gerar a proposta apenas com o Roadmap Macro nativo?")) {
+                    await generateProposalPpt(project, {
+                        includeGantt: false,
+                        tasks: projectTasks,
+                        templateConfig,
+                        smartDesign: isSmartDesign,
+                        onStatusUpdate: (msg) => setGenerationStatus(msg)
+                    });
+                }
             } else {
-                console.warn("No Template Config found in localStorage");
+                // Slight delay to ensure render
+                await generateProposalPpt(project, {
+                    includeGantt: true,
+                    ganttElementId: 'gantt-chart-area',
+                    tasks: projectTasks,
+                    viewMode: ganttViewMode,
+                    templateConfig: templateConfig,
+                    smartDesign: isSmartDesign,
+                    onStatusUpdate: (msg) => setGenerationStatus(msg)
+                });
             }
-        } catch (e) {
-            console.error("Error parsing PPT template config", e);
-        }
 
-        const ganttEl = document.getElementById('gantt-chart-area');
-
-        if (!ganttEl) {
-            // Even if no visual chart, we can generate the Native Roadmap if we have tasks
-            if (confirm("Visualização do Cronograma não encontrada (Necessário estar na aba 'Contronograma' para captura de imagem). Deseja gerar a proposta apenas com o Roadmap Macro nativo?")) {
-                await generateProposalPpt(project, { includeGantt: false, tasks: projectTasks, templateConfig });
-            }
-            return;
-        }
-
-
-
-        try {
-            // Slight delay to ensure render
-            await generateProposalPpt(project, {
-                includeGantt: true,
-                ganttElementId: 'gantt-chart-area',
-                tasks: projectTasks,
-                viewMode: ganttViewMode,
-                templateConfig: templateConfig
-            });
         } catch (e: any) {
             console.error(e);
             alert("Erro ao gerar proposta: " + e.message);
+        } finally {
+            setIsGeneratingPPT(false); // Stop Loading
         }
     };
 
@@ -1022,7 +1036,8 @@ function App() {
             planning: `${prefix}phase-plan`,
             development: `${prefix}phase-dev`,
             testing: `${prefix}phase-test`,
-            rollout: `${prefix}phase-rollout`
+            rollout: `${prefix}phase-rollout`,
+            management: `${prefix}phase-mgmt`
         };
 
         const phases: Task[] = [
@@ -1077,6 +1092,19 @@ function App() {
                 dependencies: [phaseIds.testing],
                 styles: { backgroundColor: '#10b981', progressColor: '#6ee7b7' }, // Green
                 order: 300
+            },
+            {
+                id: phaseIds.management,
+                projectId: selectedProjectId,
+                name: "Gestão do Projeto (GP)",
+                type: "project",
+                start: projectStart,
+                end: addDays(projectStart, 25), // Spans full project usually
+                progress: 0,
+                parent: null,
+                dependencies: [],
+                styles: { backgroundColor: '#8b5cf6', progressColor: '#c4b5fd' }, // Purple
+                order: -100 // Visual Preference: Top of the list? Or Bottom? User said "outside the 4 parent tasks". Let's put it at the very top (-100) or very bottom (400). Top is usually better for visibility.
             }
         ];
 
@@ -1687,6 +1715,17 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
                                 </button>
 
                                 <button
+                                    onClick={() => setGanttTab('context')}
+                                    className={`flex items-center gap-2 px-4 py-2 lg:px-6 lg:py-3 text-xs lg:text-sm font-bold rounded-t-lg transition-all border border-b-0 relative ${ganttTab === 'context'
+                                        ? 'bg-white text-indigo-600 border-gray-200 shadow-[0_-2px_10px_rgba(0,0,0,0.02)] z-10 scale-105 origin-bottom'
+                                        : 'bg-gray-50 text-gray-400 border-transparent hover:bg-gray-100'
+                                        }`}
+                                >
+                                    <Target size={16} />
+                                    Contexto
+                                </button>
+
+                                <button
                                     onClick={() => setGanttTab('premises')}
                                     className={`flex items-center gap-2 px-4 py-2 lg:px-6 lg:py-3 text-xs lg:text-sm font-bold rounded-t-lg transition-all border border-b-0 relative ${ganttTab === 'premises'
                                         ? 'bg-white text-indigo-600 border-gray-200 shadow-[0_-2px_10px_rgba(0,0,0,0.02)] z-10 scale-105 origin-bottom'
@@ -2226,6 +2265,26 @@ Estrutura sugerida: ${projectTasks.slice(0, 5).map(t => t.name).join(', ')}... (
                 clientContext={clients.find(c => c.id === selectedClientId)?.context}
                 knowledgeBase={clientKnowledge}
             />
+
+            {/* Smart PPT Generation Loader */}
+            {isGeneratingPPT && (
+                <div className="fixed inset-0 bg-white/90 backdrop-blur-sm z-[100] flex flex-col items-center justify-center">
+                    <div className="bg-white p-8 rounded-2xl shadow-2xl border border-indigo-100 flex flex-col items-center max-w-md text-center animate-in fade-in zoom-in duration-300">
+                        <div className="relative mb-6">
+                            <div className="w-16 h-16 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin"></div>
+                            <Sparkles className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-indigo-600 animate-pulse" size={24} />
+                        </div>
+                        <h3 className="text-xl font-bold text-gray-900 mb-2">Gerando Proposta Inteligente</h3>
+                        <p className="text-gray-500 mb-6">
+                            A IA está analisando o contexto, criando designs e otimizando o conteúdo dos slides. Isso pode levar alguns instantes.
+                        </p>
+                        <div className="flex bg-indigo-50 px-4 py-2 rounded-lg text-indigo-700 text-sm font-medium items-center gap-2">
+                            <Loader2 size={16} className="animate-spin" />
+                            {generationStatus || 'Processando slides...'}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div >
     );
 }
