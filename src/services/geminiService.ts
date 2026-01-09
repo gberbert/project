@@ -302,12 +302,20 @@ Exemplo de Saída(Estimativa Completa):
 // --- EDITABLE PART (DEFAULT) ---
 
 export const DEFAULT_CONTEXT_RULES = `1. **ANÁLISE E CONTEXTO ("documentation")**:
-   - Gere textos ricos, em formato Markdown, vendendo a solução NUNCA enviar tabelas, não criar tópicos não solicitados, gerar exatamente na ordem abaixo.
+   - Gere textos ricos, em formato Markdown.
    - **context_overview**: Visão executiva. Por que fazer? Qual o valor? texto com 900 a 1000 caracteres.
    - **technical_solution**: Descreva a stack (React, Node, AWS, etc) e a arquitetura. Justifique as escolhas.
    - **implementation_steps**: Detalhe o que será entregue em cada grande bloco (ex: "No Módulo 1, faremos X").
    - **testing_strategy**: Como garantiremos qualidade? (Unitários, E2E, UAT).
-   - **scope**: Detalhe quantitativamente o escopo que será entregue em numero de componentes , número de rodadas de testes e etc de forma a ter isso muito amarrado por ser um projeto fixed price
+   - **scope**: GERE UMA TABELA MARKDOWN (Planilha) com as NOMEADAS colunas exatas: | Categoria | Funcionalidade | Tecnologia | Componente | Qtd | Complexidade | Incerteza | Horas Totais |.
+     - **Agrupe as linhas ordenadamente por**: Backend, Frontend, Infraestrutura, Testes, Gestão.
+     - 'Categoria': Backend, Frontend, Infra, etc.
+     - 'Funcionalidade': Nome do recurso (ex: Tela de Login).
+     - 'Tecnologia': Se for item de catálogo, preencha (ex: React).
+     - 'Componente': OBRIGATÓRIO usar o Nome do Componente do catálogo seguido do ID (ex: "Page Container [react-1]"). Se não houver, deixe em branco.
+     - 'Componente' (Visualização): Deve mostrar o nome legível (ex: "Microservice Setup") E o ID entre colchetes.
+     - 'Complexidade' e 'Incerteza': Preencha com os graus (PP, P, M, G, GG) ou (Baixa, Média, Alta) baseando-se na Matriz de Pesos fornecida.
+     - 'Horas Totais': Para itens de catálogo = Qtd * Horas Base * Multiplicador. Para itens genéricos = Sua estimativa profissional.
    - **non_scope**: Detalhe tudo que não será escopo por parte da entrega do projeto ficando assim como responsabilidade do contratante.
 
 2. **ESTRUTURA DE EQUIPE ("team_structure")**:
@@ -353,8 +361,11 @@ const getPricingConfigContext = () => {
         });
 
         text += "\n\nINSTRUÇÕES MANDATÓRIAS DE ESCOPO E COMPONENTES:\n";
-        text += "1. No campo 'scope' do JSON, você DEVE quantificar o esforço listando os objetos (ex: 'Serão desenvolvidos 5x Screen Container, 3x API Route Handler...').\n";
-        text += "2. COMPONENTES AUSENTES: Se a solução exigir um componente que NÃO existe na lista acima, você DEVE listá-lo no array 'suggested_components' do JSON (ver estrutura abaixo). Crie um nome coerente, defina a tecnologia e estime as horas para um Pleno. NÃO invente IDs, deixe null.\n";
+        text += "1. No campo 'scope' do JSON, você DEVE gerar uma TABELA MARKDOWN detalhada e agrupada.\n";
+        text += "2. Colunas Obrigatórias: | Categoria | Funcionalidade | Tecnologia | Componente (Nome + [ID]) | Qtd | Complexidade | Incerteza | Horas Totais |\n";
+        text += "3. Agrupamento: Ordene as linhas por Backend, Frontend, Infra, Testes, Gestão.\n";
+        text += "4. Coluna 'Componente': DEVE conter o NOME DO OBJETO seguido do [ID]. Ex: 'REST Controller [java-2]'.\n";
+        text += "5. USE A MATRIZ DE PESO para preencher Complexidade/Incerteza.\n";
 
         return text;
     } catch (e) {

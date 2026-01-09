@@ -469,11 +469,39 @@ export const generateProposalPpt = async (project: Project, options: GenerationO
                         paraSpaceBefore: 0, paraSpaceAfter: 0
                     });
 
-                    // Placeholder for diagram
-                    slide.addText("Espaço para Diagrama / Imagem", {
-                        x: 5.5, y: 1.2, w: '40%', h: 3.5, fontSize: 14, color: 'AAAAAA', align: 'center',
-                        shape: pptx.ShapeType.rect, fill: { color: 'FFFFFF' }, line: { color: 'DDDDDD', dashType: 'dash' }
-                    });
+                    // --- AI IMAGE GENERATION FOR CONTEXT ---
+                    if (options.smartDesign) {
+                        try {
+                            const contextPrompt = `
+                                Create a conceptual, professional corporate illustration for a presentation slide about:
+                                "${(content as string).substring(0, 500)}"
+                                
+                                Style: Modern Tech, Minimalist, Isometric or Abstract Vector. 
+                                Color Palette: Indigo/Blue/White. Clean white background.
+                                NO TEXT inside the image.
+                            `;
+
+                            const contextImageBase64 = await geminiService.generateImage(contextPrompt);
+
+                            slide.addImage({
+                                data: contextImageBase64,
+                                x: 5.5, y: 1.2, w: 4.0, h: 3.5
+                            });
+                        } catch (ctxErr) {
+                            console.error("Context Image Generation Failed", ctxErr);
+                            // Fallback to placeholder if gen fails
+                            slide.addText("Espaço para Diagrama / Imagem", {
+                                x: 5.5, y: 1.2, w: '40%', h: 3.5, fontSize: 14, color: 'AAAAAA', align: 'center',
+                                shape: pptx.ShapeType.rect, fill: { color: 'FFFFFF' }, line: { color: 'DDDDDD', dashType: 'dash' }
+                            });
+                        }
+                    } else {
+                        // Placeholder for diagram (Legacy/No-Smart mode)
+                        slide.addText("Espaço para Diagrama / Imagem (IA Desativada)", {
+                            x: 5.5, y: 1.2, w: '40%', h: 3.5, fontSize: 14, color: 'AAAAAA', align: 'center',
+                            shape: pptx.ShapeType.rect, fill: { color: 'FFFFFF' }, line: { color: 'DDDDDD', dashType: 'dash' }
+                        });
+                    }
                 } else {
                     slide.addText(textOps, {
                         x: 0.5, y: 1.2, w: '90%', h: 4, color: COLOR_TEXT, valign: 'top',
@@ -643,15 +671,15 @@ export const generateProposalPpt = async (project: Project, options: GenerationO
                     // 4. Generate Image
                     const roadmapImageBase64 = await geminiService.generateImage(roadmapPrompt);
 
-                    // 5. Add Image to Slide
+                    // 5. Add Image to Slide (Dimensions: 9.0" x 4.2" = ~22.86cm x 10.67cm)
                     slideRoadmap.addImage({
                         data: roadmapImageBase64,
-                        x: 0.5, y: 1.3, w: 9.0, h: 4.8
+                        x: 0.5, y: 1.0, w: 9.0, h: 4.2
                     });
 
                     // Add info note
                     slideRoadmap.addText(`Visualização gerada por IA (Estimativa: ${totalDays} dias úteis / ${totalHours}h)`, {
-                        x: 0.5, y: 6.2, w: 9, h: 0.2, fontSize: 8, color: '999999', align: 'right'
+                        x: 0.5, y: 5.25, w: 9, h: 0.2, fontSize: 8, color: '999999', align: 'right'
                     });
 
                 } catch (imgErr: any) {
@@ -666,16 +694,16 @@ export const generateProposalPpt = async (project: Project, options: GenerationO
                     slideRoadmap.addText(items, { x: 0.5, y: 1.6, w: 9, h: 3.5, valign: 'top' });
                 }
 
-                // --- Disclaimer Text (Bottom Right) ---
+                // --- Disclaimer Text (Bottom) ---
                 const DISCLAIMER_X = 0.5;
                 const DISCLAIMER_W = 9.0;
-                const BILLING_START_Y = 6.4;
+                const DISCLAIMER_Y = 5.35;
 
                 const disclaimerText = "Este cronograma macro apresenta uma visão executiva e não exaustiva das atividades previstas. As datas e durações são estimativas preliminares que poderão sofrer ajustes conforme o aprofundamento técnico preliminar.";
 
                 slideRoadmap.addText(disclaimerText, {
-                    x: DISCLAIMER_X, y: BILLING_START_Y, w: DISCLAIMER_W, h: 0.5,
-                    fontSize: 8, color: '9CA3AF', align: 'center', valign: 'top', italic: true
+                    x: DISCLAIMER_X, y: DISCLAIMER_Y, w: DISCLAIMER_W, h: 0.3,
+                    fontSize: 7, color: '9CA3AF', align: 'center', valign: 'top', italic: true
                 });
             }
         }

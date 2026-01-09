@@ -1201,6 +1201,8 @@ function App() {
 
         // 4. Update Project Metadata with Derived Team Structure
         // SINGLE SOURCE OF TRUTH: The Tasks themselves.
+        // 4. Update Project Metadata with Derived Team Structure
+        // SINGLE SOURCE OF TRUTH: The Tasks themselves.
         const derivedTeamMap = new Map<string, ProjectTeamMember>();
 
         orderedTasks.forEach(t => {
@@ -1211,15 +1213,51 @@ function App() {
                 const rate = t.hourlyRate || 0;
 
                 if (!derivedTeamMap.has(roleName)) {
+                    // Try to find this role in the AI Estimate to get correct Quantity/Responsibilities
+                    let initialQty = 1;
+                    let initialResps: string[] = [];
+                    let recommendedRate = 0;
+
+                    if (estimate.team_structure) {
+                        const normalize = (s: string) => s.toLowerCase().trim();
+                        const target = normalize(roleName); // e.g., "gp"
+
+                        // Improved Matching Strategy
+                        const aiMember = estimate.team_structure.find(m => {
+                            const source = normalize(m.role); // e.g., "gerente de projetos (gp)"
+
+                            // 1. Exact Match
+                            if (source === target) return true;
+
+                            // 2. Token Match (handles "Role (Abbr)" pattern)
+                            // Splits by space, parens, etc. to find exact word match of the abbreviation
+                            const tokens = source.split(/[\s()]+/);
+                            if (tokens.includes(target)) return true;
+
+                            // 3. Fallback: Containment for longer titles
+                            if (target.length > 3 && source.includes(target)) return true;
+
+                            return false;
+                        });
+
+                        if (aiMember) {
+                            initialQty = aiMember.quantity;
+                            initialResps = aiMember.responsibilities;
+                            recommendedRate = aiMember.hourlyRate || 0;
+                        }
+                    }
+
                     derivedTeamMap.set(roleName, {
                         role: roleName,
-                        quantity: 1,
-                        hourlyRate: rate,
-                        responsibilities: []
+                        quantity: initialQty,
+                        hourlyRate: rate > 0 ? rate : recommendedRate,
+                        responsibilities: initialResps
                     });
                 } else {
                     const member = derivedTeamMap.get(roleName)!;
-                    member.quantity += 1;
+                    // FIX: Do NOT increment quantity based on task count. 
+                    // Quantity should reflect the NUMBER OF PEOPLE, not number of tasks.
+
                     // Trust the task's rate. If we have a non-zero rate, ensure it's captured.
                     if (rate > 0 && (!member.hourlyRate || member.hourlyRate === 0)) {
                         member.hourlyRate = rate;
@@ -1227,20 +1265,6 @@ function App() {
                 }
             }
         });
-
-        // Try to enrich responsibilities from the AI's structural suggestion if names match
-        if (estimate.team_structure) {
-            estimate.team_structure.forEach(aiMember => {
-                const aiRole = aiMember.role.trim();
-                // We only care if this role actually exists in the tasks
-                if (derivedTeamMap.has(aiRole)) {
-                    const member = derivedTeamMap.get(aiRole)!;
-                    if (aiMember.responsibilities && aiMember.responsibilities.length > 0) {
-                        member.responsibilities = aiMember.responsibilities;
-                    }
-                }
-            });
-        }
 
         const finalTeamStructure = Array.from(derivedTeamMap.values());
 
