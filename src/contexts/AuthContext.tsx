@@ -58,19 +58,42 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
-            setFirebaseUser(fbUser);
-            if (fbUser) {
-                // Ensure document exists
-                await createUserDoc(fbUser);
-                // After creating/fetching, verify existing data again to ensure 'user' state is correct if just created
-                const userRef = doc(db, 'users', fbUser.uid);
-                const snap = await getDoc(userRef);
-                if (snap.exists()) setUser(snap.data() as AppUser);
+            try {
+                setFirebaseUser(fbUser);
+                if (fbUser) {
+                    // Ensure document exists
+                    await createUserDoc(fbUser);
+                    // After creating/fetching, verify existing data again to ensure 'user' state is correct if just created
+                    const userRef = doc(db, 'users', fbUser.uid);
+                    const snap = await getDoc(userRef);
+                    if (snap.exists()) setUser(snap.data() as AppUser);
 
-            } else {
-                setUser(null);
+                } else {
+                    setUser(null);
+                }
+            } catch (err) {
+                console.error("Auth Initialization Error:", err);
+                // Fallback: If we can't read the user profile due to permissions, 
+                // we might want to logout or set a minimal user to avoid white screen.
+                // For now, let's allow the app to render, user will be null or partial.
+                if (fbUser) {
+                    // Try to set minimal user from Auth object if DB fails
+                    setUser({
+                        uid: fbUser.uid,
+                        email: fbUser.email || '',
+                        displayName: fbUser.displayName || 'User',
+                        role: 'user',
+                        isApproved: false,
+                        canUseAI: false,
+                        photoURL: fbUser.photoURL || '',
+                        createdAt: new Date()
+                    });
+                } else {
+                    setUser(null);
+                }
+            } finally {
+                setLoading(false);
             }
-            setLoading(false);
         });
 
         return () => unsubscribe();
