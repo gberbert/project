@@ -539,6 +539,11 @@ function App() {
 
     // Subscribe to Firestore 
     useEffect(() => {
+        if (!user) {
+            setDbTasks([]);
+            return;
+        }
+
         const projectId = selectedProjectId || '1';
         let unsubscribeTasks: (() => void) | undefined;
         try {
@@ -554,6 +559,8 @@ function App() {
             setDbTasks(INITIAL_TASKS.filter(t => t.projectId === projectId));
         }
 
+        // Resources are global or project based? Current implementation is global collection.
+        // Assuming read access is allowed for auth users.
         const unsubscribeResources = ProjectService.subscribeResources((res) => {
             if (res.length > 0) setResources(res);
         });
@@ -562,7 +569,7 @@ function App() {
             if (unsubscribeTasks) unsubscribeTasks();
             unsubscribeResources();
         };
-    }, [selectedProjectId]);
+    }, [selectedProjectId, user]);
 
 
 
